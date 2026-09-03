@@ -82,6 +82,12 @@ export interface DashboardSummary {
   }>;
   salesLast7Days: Array<{ date: string; label: string; value: number }>;
   topProducts: Array<{ name: string; quantity: number; value: number }>;
+  relationship: {
+    newCustomersThisMonth: number;
+    activeCustomers30d: number;
+    identifiedSalesShare30d: number;
+    salesInWindow30d: number;
+  };
   paymentsByMethod: Array<{ method: string; value: number }>;
 }
 export const dashboardApi = {

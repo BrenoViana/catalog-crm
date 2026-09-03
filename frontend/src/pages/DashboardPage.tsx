@@ -123,6 +123,37 @@ export function DashboardPage() {
         </section>
       ) : null}
 
+      {data ? (
+        <section className="panel" style={{ marginTop: 20 }}>
+          <div className="panel-header">
+            <h2>Relacionamento (últimos 30 dias)</h2>
+          </div>
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <article className="stat-card">
+              <span>Novos clientes no mês</span>
+              <strong>{num(data.relationship.newCustomersThisMonth)}</strong>
+            </article>
+            <article className="stat-card">
+              <span>Clientes ativos</span>
+              <strong>{num(data.relationship.activeCustomers30d)}</strong>
+            </article>
+            <article className="stat-card">
+              <span>Vendas identificadas</span>
+              <strong>
+                {(data.relationship.identifiedSalesShare30d * 100).toLocaleString('pt-BR', {
+                  maximumFractionDigits: 0,
+                })}
+                %
+              </strong>
+            </article>
+          </div>
+          <p className="muted" style={{ marginTop: 8 }}>
+            {num(data.relationship.salesInWindow30d)} vendas concluídas no período — quanto mais
+            vendas com cliente identificado, mais a segmentação e os aniversariantes funcionam.
+          </p>
+        </section>
+      ) : null}
+
       <section className="panel" style={{ marginTop: 20 }}>
         <div className="panel-header">
           <h2>Recebido hoje por forma de pagamento</h2>

@@ -3,68 +3,27 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
 import {
-  customersApi,
-  type Customer,
-  type CustomerListItem,
-  type CustomerSegment,
-} from '../lib/api-client';
+  CustomerFormModal,
+  SEGMENT_LABEL,
+  SEGMENT_TAG,
+  blankCustomerForm,
+  fromCustomer,
+} from '../components/CustomerFormModal';
+import { customersApi, type CustomerSegment } from '../lib/api-client';
 import { brl, dateOnly, dateTime } from '../lib/format';
-
-const blankForm = {
-  name: '',
-  document: '',
-  phone: '',
-  email: '',
-  birthDate: '',
-  notes: '',
-};
-type CustomerForm = typeof blankForm;
-
-const SEGMENT_LABEL: Record<CustomerSegment, string> = {
-  NOVO: 'Novo',
-  VIP: 'VIP',
-  ATIVO: 'Ativo',
-  EM_RISCO: 'Em risco',
-  INATIVO: 'Inativo',
-};
-const SEGMENT_TAG: Record<CustomerSegment, string> = {
-  NOVO: '',
-  VIP: 'tag-success',
-  ATIVO: 'tag-success',
-  EM_RISCO: 'tag-warning',
-  INATIVO: 'tag-warning',
-};
-
-function fromCustomer(c: Customer): CustomerForm {
-  return {
-    name: c.name,
-    document: c.document ?? '',
-    phone: c.phone ?? '',
-    email: c.email ?? '',
-    birthDate: c.birthDate ? c.birthDate.slice(0, 10) : '',
-    notes: c.notes ?? '',
-  };
-}
-
-/** Só manda o que muda de fato; string vazia vira omissão (não quebra @IsEmail/@IsISO8601). */
-function toPayload(f: CustomerForm): Partial<Customer> {
-  const out: Partial<Customer> = { name: f.name.trim() };
-  if (f.document.trim()) out.document = f.document.trim();
-  if (f.phone.trim()) out.phone = f.phone.trim();
-  if (f.email.trim()) out.email = f.email.trim();
-  if (f.birthDate) out.birthDate = f.birthDate;
-  if (f.notes.trim()) out.notes = f.notes.trim();
-  return out;
-}
+import { downloadText, toCsv } from '../lib/download';
 
 const MONTHS = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
 
+const SEGMENTS: CustomerSegment[] = ['NOVO', 'ATIVO', 'EM_RISCO', 'INATIVO', 'VIP'];
+
 export function CustomersPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [segment, setSegment] = useState<CustomerSegment | ''>('');
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showBirthdays, setShowBirthdays] = useState(false);
@@ -74,6 +33,26 @@ export function CustomersPage() {
     queryKey: ['customers', search],
     queryFn: () => customersApi.list(search),
   });
+
+  const rows = useMemo(
+    () => (customers.data ?? []).filter((c) => !segment || c.segment === segment),
+    [customers.data, segment],
+  );
+
+  const exportCsv = () => {
+    const header = ['Nome', 'CPF', 'Telefone', 'E-mail', 'Segmento', 'Última compra', 'Total gasto'];
+    const body = rows.map((c) => [
+      c.name,
+      c.document ?? '',
+      c.phone ?? '',
+      c.email ?? '',
+      SEGMENT_LABEL[c.segment] ?? c.segment,
+      c.lastPurchase ? dateOnly(c.lastPurchase) : '',
+      c.totalSpent.toFixed(2).replace('.', ','),
+    ]);
+    const tag = segment ? `-${segment.toLowerCase()}` : '';
+    downloadText(`clientes${tag}.csv`, toCsv([header, ...body]));
+  };
 
   return (
     <Layout>
@@ -101,13 +80,28 @@ export function CustomersPage() {
       ) : null}
 
       <section className="panel">
-        <input
-          className="field-input"
-          placeholder="Buscar por nome, CPF ou telefone…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ marginBottom: 16 }}
-        />
+        <div className="toolbar">
+          <input
+            className="field-input"
+            placeholder="Buscar por nome, CPF ou telefone…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select value={segment} onChange={(e) => setSegment(e.target.value as CustomerSegment | '')}>
+            <option value="">Todos os segmentos</option>
+            {SEGMENTS.map((s) => (
+              <option key={s} value={s}>{SEGMENT_LABEL[s]}</option>
+            ))}
+          </select>
+          <button
+            className="ghost-button"
+            disabled={rows.length === 0}
+            onClick={exportCsv}
+          >
+            Exportar CSV
+          </button>
+        </div>
+
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -121,7 +115,7 @@ export function CustomersPage() {
               </tr>
             </thead>
             <tbody>
-              {customers.data?.map((c) => (
+              {rows.map((c) => (
                 <tr
                   key={c.id}
                   className="row-clickable"
@@ -141,10 +135,10 @@ export function CustomersPage() {
                   <td style={{ textAlign: 'right' }}>{brl(c.totalSpent)}</td>
                 </tr>
               ))}
-              {customers.data?.length === 0 ? (
+              {!customers.isLoading && rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="muted">
-                    Nenhum cliente.
+                    {segment ? 'Nenhum cliente neste segmento.' : 'Nenhum cliente.'}
                   </td>
                 </tr>
               ) : null}
@@ -156,7 +150,7 @@ export function CustomersPage() {
       {creating ? (
         <CustomerFormModal
           title="Novo cliente"
-          initial={blankForm}
+          initial={blankCustomerForm}
           onClose={() => setCreating(false)}
           onSubmit={(payload) => customersApi.create(payload)}
           onSaved={() => {
@@ -167,10 +161,7 @@ export function CustomersPage() {
       ) : null}
 
       {selectedId ? (
-        <CustomerProfileModal
-          id={selectedId}
-          onClose={() => setSelectedId(null)}
-        />
+        <CustomerProfileModal id={selectedId} onClose={() => setSelectedId(null)} />
       ) : null}
     </Layout>
   );
@@ -191,6 +182,19 @@ function BirthdayPanel({
     queryFn: () => customersApi.birthdays(month),
   });
 
+  const exportCsv = () => {
+    const body = (list.data ?? []).map((c) => [
+      new Date(c.birthDate).getUTCDate(),
+      c.name,
+      c.phone ?? '',
+      c.email ?? '',
+    ]);
+    downloadText(
+      `aniversariantes-${String(month).padStart(2, '0')}.csv`,
+      toCsv([['Dia', 'Nome', 'Telefone', 'E-mail'], ...body]),
+    );
+  };
+
   return (
     <section className="panel" style={{ marginBottom: 20 }}>
       <div className="panel-header">
@@ -201,6 +205,13 @@ function BirthdayPanel({
               <option key={m} value={i + 1}>{m}</option>
             ))}
           </select>
+          <button
+            className="mini-button"
+            disabled={!list.data || list.data.length === 0}
+            onClick={exportCsv}
+          >
+            Exportar
+          </button>
           <button className="mini-button" onClick={onClose}>Fechar</button>
         </div>
       </div>
@@ -219,90 +230,6 @@ function BirthdayPanel({
         <p className="muted">Nenhum cliente faz aniversário em {MONTHS[month - 1]}.</p>
       )}
     </section>
-  );
-}
-
-/* ---------------------------------------------------------------- Form (novo/editar) */
-function CustomerFormModal({
-  title,
-  initial,
-  onClose,
-  onSubmit,
-  onSaved,
-}: {
-  title: string;
-  initial: CustomerForm;
-  onClose: () => void;
-  onSubmit: (payload: Partial<Customer>) => Promise<unknown>;
-  onSaved: () => void;
-}) {
-  const [form, setForm] = useState<CustomerForm>(initial);
-  const set = <K extends keyof CustomerForm>(k: K, v: CustomerForm[K]) =>
-    setForm((f) => ({ ...f, [k]: v }));
-
-  const save = useMutation({
-    mutationFn: () => onSubmit(toPayload(form)),
-    onSuccess: onSaved,
-  });
-
-  return (
-    <Modal
-      title={title}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="ghost-button" onClick={onClose}>Cancelar</button>
-          <button
-            className="primary-button"
-            disabled={!form.name.trim() || save.isPending}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? 'Salvando…' : 'Salvar'}
-          </button>
-        </>
-      }
-    >
-      {save.error ? (
-        <div className="error-message">
-          {save.error instanceof Error ? save.error.message : 'Erro ao salvar'}
-        </div>
-      ) : null}
-      <div className="form-grid">
-        <label className="field" style={{ gridColumn: 'span 2' }}>
-          <span>Nome *</span>
-          <input value={form.name} onChange={(e) => set('name', e.target.value)} />
-        </label>
-        <label className="field">
-          <span>CPF</span>
-          <input value={form.document} onChange={(e) => set('document', e.target.value)} />
-        </label>
-        <label className="field">
-          <span>Telefone</span>
-          <input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
-        </label>
-        <label className="field">
-          <span>E-mail</span>
-          <input value={form.email} onChange={(e) => set('email', e.target.value)} />
-        </label>
-        <label className="field">
-          <span>Nascimento</span>
-          <input
-            type="date"
-            value={form.birthDate}
-            onChange={(e) => set('birthDate', e.target.value)}
-          />
-        </label>
-        <label className="field" style={{ gridColumn: 'span 2' }}>
-          <span>Observações</span>
-          <textarea
-            className="field-input"
-            style={{ minHeight: 72 }}
-            value={form.notes}
-            onChange={(e) => set('notes', e.target.value)}
-          />
-        </label>
-      </div>
-    </Modal>
   );
 }
 

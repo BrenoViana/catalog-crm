@@ -973,3 +973,9 @@ a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-
     width: 100%;
   }
 }
+
+/* Campo com botão de ação ao lado (ex.: cliente + cadastrar no PDV) */
+.input-with-action { display: flex; gap: 8px; align-items: stretch; }
+.input-with-action select,
+.input-with-action input { flex: 1; min-width: 0; }
+.input-with-action .mini-button { white-space: nowrap; }

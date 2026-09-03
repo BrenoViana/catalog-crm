@@ -32,6 +32,7 @@ export class DashboardService {
       last7,
       topProducts,
       paymentsToday,
+      relationship,
       openSessions,
     ] = await Promise.all([
       this.prisma.sale.findMany({
@@ -57,6 +58,7 @@ export class DashboardService {
           sale: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
         },
       }),
+      this.customerRelationship(),
       this.prisma.cashSession.findMany({
         where: { status: 'ABERTA' },
         orderBy: { openedAt: 'asc' },
@@ -95,10 +97,46 @@ export class DashboardService {
       openCashSessions,
       salesLast7Days: last7,
       topProducts,
+      relationship,
       paymentsByMethod: paymentsToday.map((p) => ({
         method: p.method,
         value: Number(p._sum.amount ?? 0),
       })),
+    };
+  }
+
+  /** Indicadores de relacionamento com o cliente na janela de 30 dias. */
+  private async customerRelationship() {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    const from30 = new Date();
+    from30.setDate(from30.getDate() - 30);
+
+    const [newThisMonth, salesWindow, activeCustomers] = await Promise.all([
+      this.prisma.customer.count({ where: { createdAt: { gte: startOfMonth } } }),
+      this.prisma.sale.findMany({
+        where: { status: 'CONCLUIDA', completedAt: { gte: from30 } },
+        select: { customerId: true },
+      }),
+      this.prisma.sale.groupBy({
+        by: ['customerId'],
+        where: {
+          status: 'CONCLUIDA',
+          completedAt: { gte: from30 },
+          customerId: { not: null },
+        },
+      }),
+    ]);
+
+    const totalSales = salesWindow.length;
+    const identifiedSales = salesWindow.filter((s) => s.customerId).length;
+
+    return {
+      newCustomersThisMonth: newThisMonth,
+      activeCustomers30d: activeCustomers.length,
+      identifiedSalesShare30d: totalSales ? identifiedSales / totalSales : 0,
+      salesInWindow30d: totalSales,
     };
   }
 

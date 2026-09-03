@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { SaleReceipt } from '../components/SaleReceipt';
+import { CustomerFormModal, blankCustomerForm } from '../components/CustomerFormModal';
 import {
   cashApi,
   customersApi,
   productsApi,
   salesApi,
   storeSettingsApi,
+  type Customer,
   type PaymentMethod,
   type Product,
   type Sale,
@@ -43,6 +45,8 @@ export function PdvPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [scanMiss, setScanMiss] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
+  const [quickAdd, setQuickAdd] = useState(false);
+  const [justAdded, setJustAdded] = useState<{ id: string; name: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const cash = useQuery({ queryKey: ['cash', 'current'], queryFn: cashApi.current });
@@ -140,6 +144,8 @@ export function PdvPage() {
   // Atalhos de teclado do balcão.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Não interferir enquanto um modal (ex.: cadastro de cliente) está aberto.
+      if (document.querySelector('.modal-backdrop')) return;
       if (e.key === 'F2') {
         e.preventDefault();
         searchRef.current?.focus();
@@ -168,6 +174,7 @@ export function PdvPage() {
     let last = 0;
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
+      if (document.querySelector('.modal-backdrop')) return;
       const now = Date.now();
       if (now - last > SCAN_GAP_MS) buffer = '';
       last = now;
@@ -182,7 +189,15 @@ export function PdvPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [resolveCode]);
 
-  const customerName = customers.data?.find((c) => c.id === customerId)?.name;
+  // Cliente recém-cadastrado no balcão pode não voltar na lista (operador só vê
+  // clientes por busca) — mantém a opção disponível até a próxima venda.
+  const customerOptions = useMemo(() => {
+    const base = (customers.data ?? []).map((c) => ({ id: c.id, name: c.name }));
+    if (justAdded && !base.some((c) => c.id === justAdded.id)) base.unshift(justAdded);
+    return base;
+  }, [customers.data, justAdded]);
+
+  const customerName = customerOptions.find((c) => c.id === customerId)?.name;
 
   return (
     <Layout>
@@ -306,14 +321,23 @@ export function PdvPage() {
 
           <label className="field">
             <span>Cliente (opcional)</span>
-            <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-              <option value="">Consumidor não identificado</option>
-              {customers.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <div className="input-with-action">
+              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+                <option value="">Consumidor não identificado</option>
+                {customerOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="mini-button"
+                onClick={() => setQuickAdd(true)}
+              >
+                + Cadastrar
+              </button>
+            </div>
           </label>
 
           <div className="pay-methods">
@@ -350,6 +374,23 @@ export function PdvPage() {
           </button>
         </section>
       </div>
+
+      {quickAdd ? (
+        <CustomerFormModal
+          title="Cadastrar cliente"
+          variant="quick"
+          initial={blankCustomerForm}
+          onClose={() => setQuickAdd(false)}
+          onSubmit={(payload) => customersApi.create(payload)}
+          onSaved={(created) => {
+            const c = created as Customer;
+            setJustAdded({ id: c.id, name: c.name });
+            setCustomerId(c.id);
+            queryClient.invalidateQueries({ queryKey: ['customers'] });
+            setQuickAdd(false);
+          }}
+        />
+      ) : null}
 
       {lastSale ? (
         <SaleReceipt
