@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  SELLER
+}
+
+enum CustomerStatus {
+  LEAD
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum OpportunityStage {
+  PROSPECTING
+  QUALIFICATION
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum SaleStatus {
+  PAID
+  PENDING
+  CANCELLED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  name      String
+  role      Role     @default(SELLER)
+  createdAt DateTime @default(now())
+}
+
+model Customer {
+  id        String         @id @default(uuid())
+  name      String
+  company   String
+  email     String?
+  phone     String?
+  segment   String?
+  status    CustomerStatus @default(LEAD)
+  createdAt DateTime       @default(now())
+  deals     Opportunity[]
+}
+
+model Seller {
+  id             String       @id @default(uuid())
+  name           String
+  email          String?
+  phone          String?
+  role           String?
+  salesTarget    Float        @default(0)
+  commissionRate Float        @default(0)
+  createdAt      DateTime     @default(now())
+  deals          Opportunity[]
+}
+
+model Opportunity {
+  id               String            @id @default(uuid())
+  title            String
+  customerId       String
+  sellerId         String
+  stage            OpportunityStage  @default(PROSPECTING)
+  amount           Float             @default(0)
+  expectedCloseDate DateTime?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  customer         Customer          @relation(fields: [customerId], references: [id])
+  seller           Seller            @relation(fields: [sellerId], references: [id])
+  sales            Sale[]
+}
+
+model Sale {
+  id           String     @id @default(uuid())
+  opportunityId String
+  amount       Float      @default(0)
+  status       SaleStatus @default(PENDING)
+  createdAt    DateTime   @default(now())
+  opportunity  Opportunity @relation(fields: [opportunityId], references: [id])
+}
+
+model License {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  customer  String
+  active    Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}

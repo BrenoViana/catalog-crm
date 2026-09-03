@@ -1,0 +1,32 @@
+{
+  "name": "catalog-crm",
+  "version": "1.0.0",
+  "description": "Sistema executivo de CRM com catalogação de produtos e gerenciamento de vendas",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev -w backend & npm run dev -w frontend",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "start": "npm run start -w backend",
+    "backend:dev": "npm run dev -w backend",
+    "backend:build": "npm run build -w backend",
+    "backend:start": "npm run start -w backend",
+    "frontend:dev": "npm run dev -w frontend",
+    "frontend:build": "npm run build -w frontend",
+    "frontend:preview": "npm run preview -w frontend"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "keywords": [
+    "crm",
+    "sales",
+    "catalog",
+    "nestjs",
+    "react",
+    "postgresql",
+    "prisma"
+  ],
+  "author": "",
+  "license": "MIT"
+}

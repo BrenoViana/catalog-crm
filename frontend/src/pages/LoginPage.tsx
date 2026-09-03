@@ -1,0 +1,80 @@
+import { FormEvent, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../store/authStore';
+import { authApi } from '../lib/api-client';
+
+export function LoginPage() {
+  const navigate = useNavigate();
+  const setAuth = useAuthStore((state) => state.setAuth);
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('admin');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    if (!username || !password) {
+      setError('Informe usuário e senha.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const response = await authApi.login({ username, password });
+      setAuth(response.access_token, response.user);
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao fazer login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-header">
+          <div className="brand-mark">C</div>
+          <div>
+            <p className="eyebrow">CRM Executivo</p>
+            <h1>Catalog CRM</h1>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="auth-form">
+          <label>
+            Usuário
+            <input 
+              value={username} 
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={loading}
+            />
+          </label>
+
+          <label>
+            Senha
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+            />
+          </label>
+
+          {error ? <p className="auth-error">{error}</p> : null}
+
+          <button 
+            type="submit" 
+            className="primary-button large-button"
+            disabled={loading}
+          >
+            {loading ? 'Autenticando...' : 'Entrar no sistema'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
