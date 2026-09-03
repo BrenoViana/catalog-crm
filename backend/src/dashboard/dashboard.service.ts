@@ -49,7 +49,7 @@ export class DashboardService {
   }
 
   private getSalesLastSixMonths() {
-    const months = [];
+    const months: Array<{ month: string; value: number }> = [];
     const today = new Date();
 
     for (let i = 5; i >= 0; i--) {

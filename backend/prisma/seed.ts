@@ -1,6 +1,12 @@
+import { existsSync } from 'node:fs';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+if (existsSync('.env')) {
+  process.loadEnvFile('.env');
+}
+
+const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL as string) });
 
 async function main() {
   // Clean up existing data
