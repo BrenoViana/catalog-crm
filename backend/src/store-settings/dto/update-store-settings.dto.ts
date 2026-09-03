@@ -1,4 +1,17 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+
+/**
+ * Logo aceito como URL https:// ou data URI de imagem embutida.
+ * String vazia limpa o logo (normalizada para null no service).
+ */
+const LOGO_PATTERN =
+  /^$|^https:\/\/\S+$|^data:image\/(png|jpe?g|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+
+// ~700 KB de string cobre uma imagem de ~512 KB em base64.
+const LOGO_MAX_LENGTH = 700_000;
+
+const LOGO_MESSAGE =
+  'Logo deve ser uma URL https:// ou uma imagem embutida (png, jpeg, webp ou svg).';
 
 export class UpdateStoreSettingsDto {
   @IsOptional() @IsString() legalName?: string;
@@ -20,6 +33,18 @@ export class UpdateStoreSettingsDto {
   @IsOptional() @IsString() addressZip?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(LOGO_MAX_LENGTH, { message: 'Logo muito grande (maximo ~512 KB).' })
+  @Matches(LOGO_PATTERN, { message: LOGO_MESSAGE })
+  logoLightUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(LOGO_MAX_LENGTH, { message: 'Logo muito grande (maximo ~512 KB).' })
+  @Matches(LOGO_PATTERN, { message: LOGO_MESSAGE })
+  logoDarkUrl?: string;
 
   @IsOptional() @IsString() nfceEnvironment?: string;
   @IsOptional() @IsString() nfceCscId?: string;

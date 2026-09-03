@@ -1,9 +1,121 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { licenseApi, storeSettingsApi, type StoreSettings } from '../lib/api-client';
 
 type Form = Partial<StoreSettings>;
+
+/** Campos que o backend aceita no PUT — o GET devolve mais que isso (id, updatedAt, flags). */
+const EDITABLE = [
+  'legalName',
+  'tradeName',
+  'cnpj',
+  'ie',
+  'im',
+  'taxRegime',
+  'addressStreet',
+  'addressNumber',
+  'addressComplement',
+  'addressDistrict',
+  'addressCity',
+  'addressState',
+  'addressZip',
+  'phone',
+  'email',
+  'logoLightUrl',
+  'logoDarkUrl',
+  'nfceEnvironment',
+] as const satisfies readonly (keyof StoreSettings)[];
+
+const MAX_LOGO_BYTES = 512 * 1024;
+
+function toPayload(form: Form): Partial<StoreSettings> {
+  const payload: Record<string, unknown> = {};
+  for (const key of EDITABLE) {
+    const value = form[key];
+    if (value === undefined) continue;
+    payload[key] = value === null ? '' : value;
+  }
+  return payload as Partial<StoreSettings>;
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Nao foi possivel ler o arquivo.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function LogoSlot({
+  title,
+  hint,
+  preview,
+  value,
+  onPick,
+  onClear,
+}: {
+  title: string;
+  hint: string;
+  preview: 'on-dark' | 'on-light';
+  value: string | null | undefined;
+  onPick: (dataUrl: string) => void;
+  onClear: () => void;
+}) {
+  const [error, setError] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = async (file: File | undefined) => {
+    setError('');
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) {
+      setError('Use PNG, JPEG, WEBP ou SVG.');
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setError(`Arquivo muito grande (${Math.round(file.size / 1024)} KB). Máximo 512 KB.`);
+      return;
+    }
+    try {
+      onPick(await readAsDataUrl(file));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao ler o arquivo.');
+    }
+    if (inputRef.current) inputRef.current.value = '';
+  };
+
+  return (
+    <div className="logo-slot">
+      <strong>{title}</strong>
+      <div className={`logo-preview ${preview}`}>
+        {value ? (
+          <img src={value} alt={title} />
+        ) : (
+          <span className="placeholder">Sem logo — usa a marca padrão</span>
+        )}
+      </div>
+      <div className="logo-actions">
+        <label className="file-button">
+          {value ? 'Trocar imagem' : 'Escolher imagem'}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+        </label>
+        {value ? (
+          <button type="button" className="ghost-button" onClick={onClear}>
+            Remover
+          </button>
+        ) : null}
+      </div>
+      <small>{hint}</small>
+      {error ? <small style={{ color: 'var(--danger-text)' }}>{error}</small> : null}
+    </div>
+  );
+}
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -18,7 +130,7 @@ export function SettingsPage() {
   }, [store.data]);
 
   const save = useMutation({
-    mutationFn: () => storeSettingsApi.update(form),
+    mutationFn: () => storeSettingsApi.update(toPayload(form)),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['store-settings'] }),
   });
   const activate = useMutation({
@@ -44,6 +156,39 @@ export function SettingsPage() {
       </div>
 
       {save.isSuccess ? <div className="success-message">Dados da loja salvos.</div> : null}
+      {save.isError ? (
+        <div className="error-message">
+          {save.error instanceof Error ? save.error.message : 'Falha ao salvar.'}
+        </div>
+      ) : null}
+
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header">
+          <h2>Identidade visual</h2>
+        </div>
+        <div className="logo-slots">
+          <LogoSlot
+            title="Logo — tema claro"
+            hint="Exibido quando o sistema está no tema claro. Prefira arte escura sobre fundo transparente."
+            preview="on-light"
+            value={form.logoLightUrl}
+            onPick={(dataUrl) => set('logoLightUrl', dataUrl)}
+            onClear={() => set('logoLightUrl', '')}
+          />
+          <LogoSlot
+            title="Logo — tema escuro"
+            hint="Exibido quando o sistema está no tema escuro. Prefira arte clara sobre fundo transparente."
+            preview="on-dark"
+            value={form.logoDarkUrl}
+            onPick={(dataUrl) => set('logoDarkUrl', dataUrl)}
+            onClear={() => set('logoDarkUrl', '')}
+          />
+        </div>
+        <p className="muted" style={{ marginTop: 12 }}>
+          PNG, JPEG, WEBP ou SVG de até 512 KB. Sem logo, o sistema usa a marca padrão com a
+          inicial do nome da loja. O tema é escolhido por usuário, no menu lateral.
+        </p>
+      </section>
 
       <section className="panel" style={{ marginBottom: 20 }}>
         <div className="panel-header">

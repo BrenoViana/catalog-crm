@@ -346,6 +346,10 @@ model StoreSettings {
   phone             String?
   email             String?
 
+  // Identidade visual: URL https:// ou data URI (imagem embutida).
+  logoLightUrl String? // usado no tema claro
+  logoDarkUrl  String? // usado no tema escuro
+
   // NFC-e
   nfceSeries          Int     @default(1)
   nfceNextNumber      Int     @default(1)

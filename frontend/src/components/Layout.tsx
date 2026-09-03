@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { storeSettingsApi } from '../lib/api-client';
 import { atLeast, type Role } from '../lib/roles';
 import { useAuthStore } from '../store/authStore';
+import { useThemeStore } from '../store/themeStore';
 
 type NavLeaf = { to: string; label: string; min?: Role };
 type NavGroup = { group: string; items: NavLeaf[] };
@@ -46,17 +49,25 @@ export function Layout({ children }: { children: ReactNode }) {
   const user = useAuthStore((state) => state.user);
   const role = user?.role;
 
+  const theme = useThemeStore((state) => state.theme);
+  const toggleTheme = useThemeStore((state) => state.toggle);
+
+  const store = useQuery({
+    queryKey: ['store-settings'],
+    queryFn: storeSettingsApi.get,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const logo = theme === 'light' ? store.data?.logoLightUrl : store.data?.logoDarkUrl;
+  const storeName = store.data?.tradeName || store.data?.legalName || 'Catalog';
+
   const visible = (item: NavLeaf) => !item.min || atLeast(role, item.min);
 
   const entries = nav
     .map((entry) =>
-      'group' in entry
-        ? { ...entry, items: entry.items.filter(visible) }
-        : entry,
+      'group' in entry ? { ...entry, items: entry.items.filter(visible) } : entry,
     )
-    .filter((entry) =>
-      'group' in entry ? entry.items.length > 0 : visible(entry),
-    );
+    .filter((entry) => ('group' in entry ? entry.items.length > 0 : visible(entry)));
 
   const handleLogout = () => {
     logout();
@@ -67,11 +78,17 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-box">
-          <div className="brand-mark">C</div>
-          <div>
-            <strong>Catalog</strong>
-            <span>PDV &amp; Catálogo</span>
-          </div>
+          {logo ? (
+            <img className="brand-logo" src={logo} alt={storeName} />
+          ) : (
+            <>
+              <div className="brand-mark">{storeName.charAt(0).toUpperCase()}</div>
+              <div>
+                <strong>{storeName}</strong>
+                <span>PDV &amp; Catálogo</span>
+              </div>
+            </>
+          )}
         </div>
 
         <nav className="nav-menu">
@@ -90,6 +107,16 @@ export function Layout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="sidebar-footer">
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={`Mudar para tema ${theme === 'dark' ? 'claro' : 'escuro'}`}
+          >
+            <span>{theme === 'dark' ? '🌙 Tema escuro' : '☀️ Tema claro'}</span>
+            <span>Trocar</span>
+          </button>
+
           {atLeast(role, 'ADMIN') && (
             <NavLink
               to="/configuracoes"
