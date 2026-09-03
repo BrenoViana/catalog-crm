@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { DecimalInterceptor } from './common/decimal.interceptor';
 
 if (existsSync('.env')) {
   process.loadEnvFile('.env');
@@ -19,6 +20,7 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+  app.useGlobalInterceptors(new DecimalInterceptor());
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port);

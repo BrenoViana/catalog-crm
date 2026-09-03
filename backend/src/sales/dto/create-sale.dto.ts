@@ -1,21 +1,85 @@
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
-export enum SaleStatusDto {
-  PAID = 'PAID',
-  PENDING = 'PENDING',
-  CANCELLED = 'CANCELLED',
+export enum PaymentMethodDto {
+  DINHEIRO = 'DINHEIRO',
+  PIX = 'PIX',
+  DEBITO = 'DEBITO',
+  CREDITO = 'CREDITO',
+  CREDIARIO = 'CREDIARIO',
+  OUTRO = 'OUTRO',
+}
+
+export class SaleItemInput {
+  @IsUUID()
+  productId: string;
+
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @IsPositive()
+  quantity: number;
+
+  /** Se omitido, usa o preco atual do produto. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  unitPrice?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  discount?: number;
+}
+
+export class SalePaymentInput {
+  @IsEnum(PaymentMethodDto)
+  method: PaymentMethodDto;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsPositive()
+  amount: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  installments?: number;
 }
 
 export class CreateSaleDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => SaleItemInput)
+  items: SaleItemInput[];
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => SalePaymentInput)
+  payments: SalePaymentInput[];
+
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
+
+  /** Desconto aplicado sobre o total da venda. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  discount?: number;
+
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  opportunityId: string;
-
-  @IsOptional()
-  @IsNumber()
-  amount?: number;
-
-  @IsOptional()
-  @IsEnum(SaleStatusDto)
-  status?: SaleStatusDto;
+  note?: string;
 }

@@ -5,7 +5,17 @@ import { PrismaService } from '../prisma/prisma.service';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.user.findMany();
+  findAll() {
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        active: true,
+        createdAt: true,
+      },
+      orderBy: { name: 'asc' },
+    });
   }
 }

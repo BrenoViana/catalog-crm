@@ -1,93 +1,119 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+
+const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async summary() {
-    // Total revenue from all paid sales
-    const totalSales = await this.prisma.sale.aggregate({
-      _sum: { amount: true },
-      where: { status: 'PAID' },
-    });
-    const totalRevenue = Number(totalSales._sum.amount ?? 0);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
-    // Calculate monthly target from sellers
-    const sellers = await this.prisma.seller.findMany();
-    const monthlyTarget = sellers.reduce((sum, seller) => sum + seller.salesTarget, 0);
+    const [
+      salesToday,
+      itemsAgg,
+      activeProducts,
+      stockItems,
+      last7,
+      topProducts,
+      paymentsToday,
+      openCash,
+    ] = await Promise.all([
+      this.prisma.sale.findMany({
+        where: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
+        select: { total: true },
+      }),
+      this.prisma.saleItem.aggregate({
+        _sum: { quantity: true },
+        where: {
+          sale: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
+        },
+      }),
+      this.prisma.product.count({ where: { active: true } }),
+      this.prisma.stockItem.findMany({
+        select: { quantity: true, minQuantity: true },
+      }),
+      this.salesLast7Days(),
+      this.topProducts(),
+      this.prisma.payment.groupBy({
+        by: ['method'],
+        _sum: { amount: true },
+        where: {
+          sale: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
+        },
+      }),
+      this.prisma.cashSession.findFirst({ where: { status: 'ABERTA' } }),
+    ]);
 
-    // Pipeline opportunities
-    const pipeline = await this.prisma.opportunity.aggregate({
-      _sum: { amount: true },
-      where: { stage: { in: ['PROSPECTING', 'QUALIFICATION', 'PROPOSAL', 'NEGOTIATION'] } },
-    });
-    const pipelineAmount = Number(pipeline._sum.amount ?? 0);
-
-    // Conversion rate
-    const wonOpportunities = await this.prisma.opportunity.aggregate({
-      where: { stage: 'WON' },
-      _sum: { amount: true },
-    });
-    const wonAmount = Number(wonOpportunities._sum.amount ?? 0);
-    const conversionRate = totalRevenue > 0 ? (wonAmount / (totalRevenue + pipelineAmount)) * 100 : 0;
-
-    // Sales by month (last 6 months)
-    const salesByMonth = this.getSalesLastSixMonths();
-
-    // Top sellers by revenue
-    const topSellers = await this.getTopSellers();
+    const revenueToday = salesToday.reduce((acc, s) => acc.plus(s.total), D(0));
+    const count = salesToday.length;
+    const lowStock = stockItems.filter((s) =>
+      D(s.quantity).lte(s.minQuantity),
+    ).length;
 
     return {
-      totalRevenue,
-      monthlyTarget,
-      pipeline: pipelineAmount,
-      conversionRate: conversionRate / 100, // Convert to decimal
-      salesByMonth,
-      topSellers,
+      revenueToday: revenueToday.toNumber(),
+      salesToday: count,
+      averageTicket: count ? revenueToday.div(count).toNumber() : 0,
+      itemsSoldToday: Number(itemsAgg._sum.quantity ?? 0),
+      activeProducts,
+      lowStockCount: lowStock,
+      cashOpen: Boolean(openCash),
+      salesLast7Days: last7,
+      topProducts,
+      paymentsByMethod: paymentsToday.map((p) => ({
+        method: p.method,
+        value: Number(p._sum.amount ?? 0),
+      })),
     };
   }
 
-  private getSalesLastSixMonths() {
-    const months: Array<{ month: string; value: number }> = [];
+  private async salesLast7Days() {
+    const days: { date: string; label: string; value: number }[] = [];
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      const monthName = date.toLocaleString('pt-BR', { month: 'short' }).replace('.', '');
-      months.push({ month: monthName, value: Math.floor(Math.random() * 100) + 40 });
+    for (let i = 6; i >= 0; i--) {
+      const from = new Date(today);
+      from.setDate(from.getDate() - i);
+      const to = new Date(from);
+      to.setDate(to.getDate() + 1);
+
+      const sales = await this.prisma.sale.findMany({
+        where: { status: 'CONCLUIDA', completedAt: { gte: from, lt: to } },
+        select: { total: true },
+      });
+      const value = sales.reduce((acc, s) => acc.plus(s.total), D(0));
+      days.push({
+        date: from.toISOString().slice(0, 10),
+        label: from
+          .toLocaleDateString('pt-BR', { weekday: 'short' })
+          .replace('.', ''),
+        value: value.toNumber(),
+      });
     }
-
-    return months;
+    return days;
   }
 
-  private async getTopSellers() {
-    const sellers = await this.prisma.seller.findMany({
-      select: {
-        name: true,
-        deals: {
-          select: {
-            sales: {
-              select: { amount: true, status: true },
-            },
-          },
-        },
-      },
-      take: 3,
-      orderBy: { salesTarget: 'desc' },
+  private async topProducts() {
+    const from = new Date();
+    from.setDate(from.getDate() - 30);
+
+    const grouped = await this.prisma.saleItem.groupBy({
+      by: ['productId', 'description'],
+      _sum: { quantity: true, total: true },
+      where: { sale: { status: 'CONCLUIDA', completedAt: { gte: from } } },
+      orderBy: { _sum: { total: 'desc' } },
+      take: 5,
     });
 
-    return sellers.map((seller) => {
-      const totalValue = seller.deals.reduce((sum, deal) => {
-        return sum + deal.sales.reduce((inner, sale) => {
-          return inner + (sale.status === 'PAID' ? sale.amount : 0);
-        }, 0);
-      }, 0);
-
-      return {
-        name: seller.name,
-        value: totalValue || Math.random() * 25000 + 10000,
-      };
-    });
+    return grouped.map((g) => ({
+      name: g.description,
+      quantity: Number(g._sum.quantity ?? 0),
+      value: Number(g._sum.total ?? 0),
+    }));
   }
 }

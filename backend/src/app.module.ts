@@ -4,11 +4,14 @@ import { CommonModule } from './common/common.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { CategoriesModule } from './categories/categories.module';
+import { ProductsModule } from './products/products.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { CustomersModule } from './customers/customers.module';
-import { SellersModule } from './sellers/sellers.module';
-import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { SalesModule } from './sales/sales.module';
+import { CashModule } from './cash/cash.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { StoreSettingsModule } from './store-settings/store-settings.module';
 import { LicenseModule } from './license/license.module';
 
 @Module({
@@ -18,11 +21,14 @@ import { LicenseModule } from './license/license.module';
     CommonModule,
     AuthModule,
     UsersModule,
+    CategoriesModule,
+    ProductsModule,
+    InventoryModule,
     CustomersModule,
-    SellersModule,
-    OpportunitiesModule,
     SalesModule,
+    CashModule,
     DashboardModule,
+    StoreSettingsModule,
     LicenseModule,
   ],
 })

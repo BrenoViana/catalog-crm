@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import * as bcrypt from 'bcryptjs';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
@@ -11,9 +11,7 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg(process.env.DATABASE_URL as string),
 });
 
-// Hash provisorio ate o modulo de auth passar a usar bcrypt (Fase 1).
-const tempHash = (plain: string) =>
-  'sha256$' + createHash('sha256').update(plain).digest('hex');
+const hash = (plain: string) => bcrypt.hashSync(plain, 10);
 
 async function main() {
   await prisma.cashMovement.deleteMany();
@@ -36,13 +34,13 @@ async function main() {
     data: [
       {
         username: 'admin',
-        passwordHash: tempHash('admin'),
+        passwordHash: hash('admin'),
         name: 'Administrador',
         role: 'ADMIN',
       },
       {
         username: 'operador',
-        passwordHash: tempHash('operador'),
+        passwordHash: hash('operador'),
         name: 'Operador de Caixa',
         role: 'OPERADOR',
       },
