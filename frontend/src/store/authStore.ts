@@ -10,8 +10,12 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   token: localStorage.getItem('crm-token'),
   user: (() => {
-    const raw = localStorage.getItem('crm-user');
-    return raw ? JSON.parse(raw) : null;
+    try {
+      const raw = localStorage.getItem('crm-user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
   })(),
   setAuth: (token, user) => {
     localStorage.setItem('crm-token', token);

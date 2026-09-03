@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { atLeast, type Role } from '../lib/roles';
 import { useAuthStore } from '../store/authStore';
 
-type NavLeaf = { to: string; label: string };
-type NavEntry = NavLeaf | { group: string; items: NavLeaf[] };
+type NavLeaf = { to: string; label: string; min?: Role };
+type NavGroup = { group: string; items: NavLeaf[] };
+type NavEntry = NavLeaf | NavGroup;
 
 const nav: NavEntry[] = [
-  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/dashboard', label: 'Dashboard', min: 'GERENTE' },
   {
     group: 'Caixa',
     items: [
@@ -42,6 +44,19 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
+  const role = user?.role;
+
+  const visible = (item: NavLeaf) => !item.min || atLeast(role, item.min);
+
+  const entries = nav
+    .map((entry) =>
+      'group' in entry
+        ? { ...entry, items: entry.items.filter(visible) }
+        : entry,
+    )
+    .filter((entry) =>
+      'group' in entry ? entry.items.length > 0 : visible(entry),
+    );
 
   const handleLogout = () => {
     logout();
@@ -60,7 +75,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="nav-menu">
-          {nav.map((entry) =>
+          {entries.map((entry) =>
             'group' in entry ? (
               <div key={entry.group} className="nav-group">
                 <span className="nav-group-title">{entry.group}</span>
@@ -75,17 +90,19 @@ export function Layout({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="sidebar-footer">
-          <NavLink
-            to="/configuracoes"
-            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-          >
-            Configurações
-          </NavLink>
+          {atLeast(role, 'ADMIN') && (
+            <NavLink
+              to="/configuracoes"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              Configurações
+            </NavLink>
+          )}
 
           <div className="user-box">
             <div>
               <strong>{user?.name ?? 'Usuário'}</strong>
-              <small>{user?.role ?? ''}</small>
+              <small>{role ?? ''}</small>
             </div>
             <button className="ghost-button" onClick={handleLogout}>
               Sair
