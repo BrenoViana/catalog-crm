@@ -39,8 +39,8 @@ export function LoginPage() {
         <div className="auth-header">
           <div className="brand-mark">C</div>
           <div>
-            <p className="eyebrow">CRM Executivo</p>
-            <h1>Catalog CRM</h1>
+            <p className="eyebrow">PDV & Catálogo</p>
+            <h1>Catalog</h1>
           </div>
         </div>
 

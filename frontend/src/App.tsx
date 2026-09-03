@@ -1,12 +1,19 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { CustomersPage } from './pages/CustomersPage';
-import { SellersPage } from './pages/SellersPage';
-import { OpportunitiesPage } from './pages/OpportunitiesPage';
+import { PdvPage } from './pages/PdvPage';
+import { ProductsPage } from './pages/ProductsPage';
+import { InventoryPage } from './pages/InventoryPage';
 import { SalesPage } from './pages/SalesPage';
+import { CustomersPage } from './pages/CustomersPage';
+import { CashPage } from './pages/CashPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useAuthStore } from './store/authStore';
+
+function Private({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((state) => !!state.token);
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+}
 
 function App() {
   const isAuthenticated = useAuthStore((state) => !!state.token);
@@ -14,35 +21,18 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/pdv" element={<Private><PdvPage /></Private>} />
+      <Route path="/dashboard" element={<Private><DashboardPage /></Private>} />
+      <Route path="/produtos" element={<Private><ProductsPage /></Private>} />
+      <Route path="/estoque" element={<Private><InventoryPage /></Private>} />
+      <Route path="/vendas" element={<Private><SalesPage /></Private>} />
+      <Route path="/clientes" element={<Private><CustomersPage /></Private>} />
+      <Route path="/caixa" element={<Private><CashPage /></Private>} />
+      <Route path="/configuracoes" element={<Private><SettingsPage /></Private>} />
       <Route
-        path="/"
-        element={isAuthenticated ? <DashboardPage /> : <Navigate to="/login" replace />}
+        path="*"
+        element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />}
       />
-      <Route
-        path="/dashboard"
-        element={isAuthenticated ? <DashboardPage /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="/clientes"
-        element={isAuthenticated ? <CustomersPage /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="/vendedores"
-        element={isAuthenticated ? <SellersPage /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="/oportunidades"
-        element={isAuthenticated ? <OpportunitiesPage /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="/vendas"
-        element={isAuthenticated ? <SalesPage /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="/configuracoes"
-        element={isAuthenticated ? <SettingsPage /> : <Navigate to="/login" replace />}
-      />
-      <Route path="*" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
     </Routes>
   );
 }

@@ -448,3 +448,159 @@ small {
     justify-content: center;
   }
 }
+
+/* ---------------------------------------------------------------- B2C / PDV */
+.muted { color: var(--muted); }
+.text-warning { color: var(--warning); }
+
+.header-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid var(--border);
+  color: #cdd8f0;
+}
+.tag-success { background: rgba(61, 217, 167, 0.14); color: #99f0cb; border-color: rgba(61, 217, 167, 0.3); }
+.tag-warning { background: rgba(255, 185, 104, 0.14); color: #ffd3a1; border-color: rgba(255, 185, 104, 0.32); }
+
+.success-message {
+  background: rgba(61, 217, 167, 0.12);
+  border: 1px solid rgba(61, 217, 167, 0.3);
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: #9af0cf;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+}
+
+.field { display: grid; gap: 6px; color: var(--muted); font-size: 0.88rem; margin-bottom: 12px; }
+.field span { font-size: 0.82rem; }
+.field input, .field select, .field-input {
+  width: 100%;
+  background: rgba(15, 23, 42, 1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 13px;
+  color: #edf4ff;
+}
+.field-input { display: block; }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px 16px;
+}
+
+.pdv-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.split-layout {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.result-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; max-height: 420px; overflow-y: auto; }
+.result-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #e6eeff;
+  text-align: left;
+}
+.result-row:hover { border-color: rgba(124, 156, 255, 0.4); background: rgba(124, 156, 255, 0.1); }
+.result-row small, .cart-line small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+
+.cart { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.cart-line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.cart-line-main strong { display: block; }
+.cart-line-total { min-width: 90px; text-align: right; }
+
+.qty-control { display: flex; align-items: center; gap: 6px; }
+.qty-control button {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid var(--border);
+  color: #edf4ff;
+  font-size: 1rem;
+}
+.qty-control input {
+  width: 46px;
+  text-align: center;
+  background: rgba(15, 23, 42, 1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  color: #edf4ff;
+}
+
+.cart-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.cart-summary strong { font-size: 1.4rem; }
+
+.pay-methods { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.pill-button {
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--border);
+  color: #dbe4fb;
+}
+.pill-button.active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  color: #fff;
+  border-color: transparent;
+}
+
+.danger-button {
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(255, 127, 127, 0.14);
+  border: 1px solid rgba(255, 127, 127, 0.32);
+  color: #ffb3b3;
+}
+
+.toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
+
+.table-scroll { overflow-x: auto; }
+
+.row-clickable { cursor: pointer; }
+.row-clickable:hover td { background: rgba(124, 156, 255, 0.08); }
+.row-active td { background: rgba(124, 156, 255, 0.14); }
+
+@media (max-width: 1024px) {
+  .pdv-layout, .split-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .form-grid { grid-template-columns: 1fr; }
+}

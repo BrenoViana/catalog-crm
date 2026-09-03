@@ -10,193 +10,274 @@ export class ApiClient {
   }
 
   private static getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = this.getAuthToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     return headers;
   }
 
-  static async request<T>(
-    endpoint: string,
-    options: FetchOptions = {},
-  ): Promise<T> {
+  static async request<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
     const url = `${API_URL}${endpoint}`;
     const headers = { ...this.getHeaders(), ...options.headers };
-
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    const response = await fetch(url, { ...options, headers });
 
     if (!response.ok) {
       if (response.status === 401) {
         localStorage.removeItem('crm-token');
         localStorage.removeItem('crm-user');
-        window.location.href = '/login';
+        if (!location.pathname.startsWith('/login')) location.href = '/login';
       }
-
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || `HTTP Error: ${response.status}`);
+      const message = Array.isArray(error.message) ? error.message.join(', ') : error.message;
+      throw new Error(message || `Erro HTTP ${response.status}`);
     }
 
+    if (response.status === 204) return undefined as T;
     return response.json();
   }
 
   static get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });
   }
-
   static post<T>(endpoint: string, body?: unknown): Promise<T> {
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    return this.request<T>(endpoint, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
   }
-
+  static patch<T>(endpoint: string, body?: unknown): Promise<T> {
+    return this.request<T>(endpoint, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined });
+  }
   static put<T>(endpoint: string, body?: unknown): Promise<T> {
-    return this.request<T>(endpoint, {
-      method: 'PUT',
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    return this.request<T>(endpoint, { method: 'PUT', body: body ? JSON.stringify(body) : undefined });
   }
-
   static delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
 }
 
-// Auth
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
-
+// ---------------------------------------------------------------- Auth
 export interface AuthResponse {
   access_token: string;
-  user: {
-    id: string;
-    username: string;
-    name: string;
-    role: string;
-  };
+  user: { id: string; username: string; name: string; role: string };
 }
-
 export const authApi = {
-  login: (data: LoginRequest) => ApiClient.post<AuthResponse>('/auth/login', data),
+  login: (data: { username: string; password: string }) =>
+    ApiClient.post<AuthResponse>('/auth/login', data),
 };
 
-// Dashboard
+// ---------------------------------------------------------------- Dashboard
 export interface DashboardSummary {
-  totalRevenue: number;
-  monthlyTarget: number;
-  pipeline: number;
-  conversionRate: number;
-  salesByMonth: Array<{ month: string; value: number }>;
-  topSellers: Array<{ name: string; value: number }>;
+  revenueToday: number;
+  salesToday: number;
+  averageTicket: number;
+  itemsSoldToday: number;
+  activeProducts: number;
+  lowStockCount: number;
+  cashOpen: boolean;
+  salesLast7Days: Array<{ date: string; label: string; value: number }>;
+  topProducts: Array<{ name: string; quantity: number; value: number }>;
+  paymentsByMethod: Array<{ method: string; value: number }>;
 }
-
 export const dashboardApi = {
   getSummary: () => ApiClient.get<DashboardSummary>('/dashboard/summary'),
 };
 
-// Customers
+// ---------------------------------------------------------------- Categorias
+export interface Category {
+  id: string;
+  name: string;
+  parentId: string | null;
+  _count?: { products: number };
+}
+export const categoriesApi = {
+  list: () => ApiClient.get<Category[]>('/categories'),
+  create: (data: { name: string; parentId?: string }) =>
+    ApiClient.post<Category>('/categories', data),
+  remove: (id: string) => ApiClient.delete<{ message: string }>(`/categories/${id}`),
+};
+
+// ---------------------------------------------------------------- Produtos
+export interface Product {
+  id: string;
+  sku: string;
+  barcode: string | null;
+  name: string;
+  description: string | null;
+  unit: string;
+  price: number;
+  cost: number | null;
+  active: boolean;
+  categoryId: string | null;
+  category?: Category | null;
+  taxGroupId: string | null;
+  stock?: { quantity: number; minQuantity: number } | null;
+}
+export interface CreateProductInput {
+  sku: string;
+  name: string;
+  barcode?: string;
+  description?: string;
+  unit?: string;
+  price: number;
+  cost?: number;
+  categoryId?: string;
+  initialStock?: number;
+  minStock?: number;
+}
+export const productsApi = {
+  list: (params?: { search?: string; categoryId?: string; onlyActive?: boolean }) => {
+    const q = new URLSearchParams();
+    if (params?.search) q.set('search', params.search);
+    if (params?.categoryId) q.set('categoryId', params.categoryId);
+    if (params?.onlyActive) q.set('onlyActive', 'true');
+    const qs = q.toString();
+    return ApiClient.get<Product[]>(`/products${qs ? `?${qs}` : ''}`);
+  },
+  byCode: (code: string) => ApiClient.get<Product>(`/products/by-code/${encodeURIComponent(code)}`),
+  create: (data: CreateProductInput) => ApiClient.post<Product>('/products', data),
+  update: (id: string, data: Partial<CreateProductInput> & { active?: boolean }) =>
+    ApiClient.patch<Product>(`/products/${id}`, data),
+  remove: (id: string) => ApiClient.delete<{ message: string }>(`/products/${id}`),
+};
+
+// ---------------------------------------------------------------- Estoque
+export interface StockRow {
+  productId: string;
+  name: string;
+  sku: string;
+  unit: string;
+  category: string | null;
+  quantity: number;
+  minQuantity: number;
+  low: boolean;
+  updatedAt: string;
+}
+export const inventoryApi = {
+  list: () => ApiClient.get<StockRow[]>('/inventory'),
+  lowStock: () => ApiClient.get<StockRow[]>('/inventory/low-stock'),
+  movements: (productId?: string) =>
+    ApiClient.get<any[]>(`/inventory/movements${productId ? `?productId=${productId}` : ''}`),
+  adjust: (data: { productId: string; type: 'ENTRADA' | 'AJUSTE' | 'PERDA'; quantity: number; reason?: string }) =>
+    ApiClient.post('/inventory/adjust', data),
+};
+
+// ---------------------------------------------------------------- Clientes
 export interface Customer {
   id: string;
   name: string;
-  company: string;
-  email?: string;
-  phone?: string;
-  segment?: string;
-  status: string;
+  document: string | null;
+  phone: string | null;
+  email: string | null;
+  birthDate: string | null;
+  notes: string | null;
   createdAt: string;
 }
-
 export const customersApi = {
-  getAll: () => ApiClient.get<Customer[]>('/customers'),
-  getById: (id: string) => ApiClient.get<Customer>(`/customers/${id}`),
-  create: (data: Omit<Customer, 'id' | 'createdAt'>) =>
-    ApiClient.post<Customer>('/customers', data),
-  update: (id: string, data: Partial<Customer>) =>
-    ApiClient.put<Customer>(`/customers/${id}`, data),
-  delete: (id: string) => ApiClient.delete<{ message: string }>(`/customers/${id}`),
+  list: (search?: string) =>
+    ApiClient.get<Customer[]>(`/customers${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  create: (data: Partial<Customer>) => ApiClient.post<Customer>('/customers', data),
+  update: (id: string, data: Partial<Customer>) => ApiClient.patch<Customer>(`/customers/${id}`, data),
+  remove: (id: string) => ApiClient.delete<{ message: string }>(`/customers/${id}`),
 };
 
-// Sellers
-export interface Seller {
+// ---------------------------------------------------------------- Vendas / PDV
+export type PaymentMethod = 'DINHEIRO' | 'PIX' | 'DEBITO' | 'CREDITO' | 'CREDIARIO' | 'OUTRO';
+export interface SaleItem {
   id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  role?: string;
-  salesTarget: number;
-  commissionRate: number;
-  createdAt: string;
+  productId: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  discount: number;
+  total: number;
 }
-
-export const sellersApi = {
-  getAll: () => ApiClient.get<Seller[]>('/sellers'),
-  getById: (id: string) => ApiClient.get<Seller>(`/sellers/${id}`),
-  create: (data: Omit<Seller, 'id' | 'createdAt'>) =>
-    ApiClient.post<Seller>('/sellers', data),
-  update: (id: string, data: Partial<Seller>) =>
-    ApiClient.put<Seller>(`/sellers/${id}`, data),
-  delete: (id: string) => ApiClient.delete<{ message: string }>(`/sellers/${id}`),
-};
-
-// Opportunities
-export interface Opportunity {
-  id: string;
-  title: string;
-  customerId: string;
-  sellerId: string;
-  stage: string;
-  amount: number;
-  expectedCloseDate?: string;
-  notes?: string;
-  createdAt: string;
-}
-
-export const opportunitiesApi = {
-  getAll: () => ApiClient.get<Opportunity[]>('/opportunities'),
-  getById: (id: string) => ApiClient.get<Opportunity>(`/opportunities/${id}`),
-  create: (data: Omit<Opportunity, 'id' | 'createdAt'>) =>
-    ApiClient.post<Opportunity>('/opportunities', data),
-  update: (id: string, data: Partial<Opportunity>) =>
-    ApiClient.put<Opportunity>(`/opportunities/${id}`, data),
-  delete: (id: string) => ApiClient.delete<{ message: string }>(`/opportunities/${id}`),
-};
-
-// Sales
 export interface Sale {
   id: string;
-  opportunityId: string;
-  amount: number;
-  status: string;
+  number: number;
+  status: 'ABERTA' | 'CONCLUIDA' | 'CANCELADA';
+  subtotal: number;
+  discount: number;
+  total: number;
+  note: string | null;
   createdAt: string;
+  completedAt: string | null;
+  customer?: Customer | null;
+  operator?: { id: string; name: string };
+  items?: SaleItem[];
+  payments?: Array<{ id: string; method: PaymentMethod; amount: number; installments: number | null }>;
+  fiscalDocument?: { status: string; model: number; number: number } | null;
+  _count?: { items: number };
 }
-
+export interface CreateSaleInput {
+  items: Array<{ productId: string; quantity: number; unitPrice?: number; discount?: number }>;
+  payments: Array<{ method: PaymentMethod; amount: number; installments?: number }>;
+  customerId?: string;
+  discount?: number;
+  note?: string;
+}
 export const salesApi = {
-  getAll: () => ApiClient.get<Sale[]>('/sales'),
-  getById: (id: string) => ApiClient.get<Sale>(`/sales/${id}`),
-  create: (data: Omit<Sale, 'id'>) => ApiClient.post<Sale>('/sales', data),
-  update: (id: string, data: Partial<Sale>) => ApiClient.put<Sale>(`/sales/${id}`, data),
-  delete: (id: string) => ApiClient.delete<{ message: string }>(`/sales/${id}`),
+  list: (status?: string) =>
+    ApiClient.get<Sale[]>(`/sales${status ? `?status=${status}` : ''}`),
+  get: (id: string) => ApiClient.get<Sale>(`/sales/${id}`),
+  create: (data: CreateSaleInput) => ApiClient.post<Sale>('/sales', data),
+  cancel: (id: string, reason: string) => ApiClient.post<Sale>(`/sales/${id}/cancel`, { reason }),
 };
 
-// License
-export interface LicenseInfo {
-  status: string;
-  key: string;
-  expiresAt: string;
+// ---------------------------------------------------------------- Caixa
+export interface CashSession {
+  id: string;
+  status: 'ABERTA' | 'FECHADA';
+  openingAmount: number;
+  openedAt: string;
+  closedAt: string | null;
+  closingCountedAmount: number | null;
+  closingExpectedAmount: number | null;
+  difference: number | null;
+  expectedAmount?: number;
+  movements: Array<{ id: string; type: string; amount: number; reason: string | null; createdAt: string }>;
 }
+export const cashApi = {
+  current: () => ApiClient.get<CashSession | null>('/cash/current'),
+  history: () => ApiClient.get<CashSession[]>('/cash/history'),
+  open: (openingAmount: number, notes?: string) =>
+    ApiClient.post<CashSession>('/cash/open', { openingAmount, notes }),
+  movement: (type: 'SANGRIA' | 'SUPRIMENTO', amount: number, reason?: string) =>
+    ApiClient.post<CashSession>('/cash/movement', { type, amount, reason }),
+  close: (countedAmount: number, notes?: string) =>
+    ApiClient.post<CashSession>('/cash/close', { countedAmount, notes }),
+};
 
+// ---------------------------------------------------------------- Config da loja / licença
+export interface StoreSettings {
+  id: string;
+  legalName: string;
+  tradeName: string | null;
+  cnpj: string;
+  ie: string | null;
+  taxRegime: string;
+  addressStreet: string;
+  addressNumber: string;
+  addressDistrict: string;
+  addressCity: string;
+  addressState: string;
+  addressZip: string;
+  phone: string | null;
+  email: string | null;
+  nfceEnvironment: string;
+  hasFiscalToken?: boolean;
+  hasCsc?: boolean;
+}
+export const storeSettingsApi = {
+  get: () => ApiClient.get<StoreSettings | null>('/store-settings'),
+  update: (data: Partial<StoreSettings>) => ApiClient.put<StoreSettings>('/store-settings', data),
+};
+
+export interface LicenseInfo {
+  key: string;
+  customer: string;
+  active: boolean;
+  updatedAt: string;
+}
 export const licenseApi = {
-  getInfo: () => ApiClient.get<LicenseInfo>('/license/info'),
-  update: (key: string) => ApiClient.post<LicenseInfo>('/license/update', { key }),
+  get: () => ApiClient.get<LicenseInfo>('/settings/license'),
+  update: (key: string, customer?: string) =>
+    ApiClient.put<LicenseInfo>('/settings/license', { key, customer }),
 };

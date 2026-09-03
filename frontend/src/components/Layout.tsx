@@ -3,11 +3,13 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
 const navItems = [
+  { to: '/pdv', label: 'PDV / Nova venda' },
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/clientes', label: 'Clientes' },
-  { to: '/vendedores', label: 'Vendedores' },
-  { to: '/oportunidades', label: 'Oportunidades' },
+  { to: '/produtos', label: 'Produtos' },
+  { to: '/estoque', label: 'Estoque' },
   { to: '/vendas', label: 'Vendas' },
+  { to: '/clientes', label: 'Clientes' },
+  { to: '/caixa', label: 'Caixa' },
   { to: '/configuracoes', label: 'Configurações' },
 ];
 
@@ -28,13 +30,17 @@ export function Layout({ children }: { children: ReactNode }) {
           <div className="brand-mark">C</div>
           <div>
             <strong>Catalog</strong>
-            <span>CRM</span>
+            <span>PDV &amp; Catálogo</span>
           </div>
         </div>
 
         <nav className="nav-menu">
           {navItems.map((item) => (
-            <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
               {item.label}
             </NavLink>
           ))}
@@ -43,9 +49,11 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="user-box">
           <div>
             <strong>{user?.name ?? 'Usuário'}</strong>
-            <small>{user?.role ?? 'admin'}</small>
+            <small>{user?.role ?? ''}</small>
           </div>
-          <button className="ghost-button" onClick={handleLogout}>Sair</button>
+          <button className="ghost-button" onClick={handleLogout}>
+            Sair
+          </button>
         </div>
       </aside>
 
