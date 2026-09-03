@@ -25,7 +25,7 @@ const nav: NavEntry[] = [
     items: [
       { to: '/produtos', label: 'Produtos' },
       { to: '/categorias', label: 'Categorias', min: 'GERENTE' },
-      { to: '/clientes', label: 'Clientes' },
+      { to: '/clientes', label: 'Clientes', min: 'GERENTE' },
       { to: '/estoque', label: 'Estoque' },
     ],
   },

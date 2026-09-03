@@ -27,6 +27,24 @@ export class CustomersController {
     return this.customersService.findAll(search, role);
   }
 
+  @Roles(Role.GERENTE)
+  @Get('birthdays')
+  birthdays(@Query('month') month?: string) {
+    const parsed = Number(month);
+    const m =
+      Number.isInteger(parsed) && parsed >= 1 && parsed <= 12
+        ? parsed
+        : new Date().getMonth() + 1;
+    return this.customersService.birthdays(m);
+  }
+
+  @Roles(Role.GERENTE)
+  @Get(':id/profile')
+  profile(@Param('id') id: string) {
+    return this.customersService.profile(id);
+  }
+
+  @Roles(Role.GERENTE)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.customersService.findOne(id);
@@ -37,6 +55,7 @@ export class CustomersController {
     return this.customersService.create(dto);
   }
 
+  @Roles(Role.GERENTE)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateCustomerDto) {
     return this.customersService.update(id, dto);

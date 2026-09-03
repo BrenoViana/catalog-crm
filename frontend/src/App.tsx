@@ -40,7 +40,7 @@ function App() {
       <Route path="/categorias" element={<Guard min="GERENTE"><CategoriesPage /></Guard>} />
       <Route path="/estoque" element={<Private><InventoryPage /></Private>} />
       <Route path="/vendas" element={<Private><SalesPage /></Private>} />
-      <Route path="/clientes" element={<Private><CustomersPage /></Private>} />
+      <Route path="/clientes" element={<Guard min="GERENTE"><CustomersPage /></Guard>} />
       <Route path="/caixa" element={<Private><CashPage /></Private>} />
       <Route path="/configuracoes" element={<Guard min="ADMIN"><SettingsPage /></Guard>} />
       <Route

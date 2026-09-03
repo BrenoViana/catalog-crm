@@ -195,9 +195,56 @@ export interface Customer {
   notes: string | null;
   createdAt: string;
 }
+export type CustomerSegment = 'NOVO' | 'VIP' | 'ATIVO' | 'EM_RISCO' | 'INATIVO';
+
+/** Item da lista de clientes para gerência: cliente + resumo de compras. */
+export interface CustomerListItem extends Customer {
+  salesCount: number;
+  totalSpent: number;
+  lastPurchase: string | null;
+  segment: CustomerSegment;
+}
+
+export interface CustomerProfile {
+  customer: Customer;
+  stats: {
+    salesCount: number;
+    totalSpent: number;
+    averageTicket: number;
+    firstPurchase: string | null;
+    lastPurchase: string | null;
+    segment: CustomerSegment;
+  };
+  recentSales: Array<{
+    id: string;
+    number: number;
+    status: Sale['status'];
+    total: number;
+    createdAt: string;
+    completedAt: string | null;
+    _count: { items: number };
+  }>;
+  topProducts: Array<{ name: string; quantity: number; total: number }>;
+}
+
+export interface BirthdayCustomer {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  birthDate: string;
+}
+
 export const customersApi = {
   list: (search?: string) =>
-    ApiClient.get<Customer[]>(`/customers${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+    ApiClient.get<CustomerListItem[]>(
+      `/customers${search ? `?search=${encodeURIComponent(search)}` : ''}`,
+    ),
+  getProfile: (id: string) => ApiClient.get<CustomerProfile>(`/customers/${id}/profile`),
+  birthdays: (month?: number) =>
+    ApiClient.get<BirthdayCustomer[]>(
+      `/customers/birthdays${month ? `?month=${month}` : ''}`,
+    ),
   create: (data: Partial<Customer>) => ApiClient.post<Customer>('/customers', data),
   update: (id: string, data: Partial<Customer>) => ApiClient.patch<Customer>(`/customers/${id}`, data),
   remove: (id: string) => ApiClient.delete<{ message: string }>(`/customers/${id}`),
