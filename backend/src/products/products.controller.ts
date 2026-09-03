@@ -11,12 +11,17 @@ import {
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ImportProductsDto } from './dto/import-products.dto';
+import { ProductsImportService } from './products-import.service';
 import { Role } from '@prisma/client';
 import { Roles } from '../common/roles.decorator';
 
 @Controller()
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly importService: ProductsImportService,
+  ) {}
 
   @Get('products')
   findAll(
@@ -44,6 +49,12 @@ export class ProductsController {
   @Get('products/:id')
   findOne(@Param('id') id: string) {
     return this.productsService.findOne(id);
+  }
+
+  @Roles(Role.GERENTE)
+  @Post('products/import')
+  import(@Body() dto: ImportProductsDto) {
+    return this.importService.import(dto);
   }
 
   @Roles(Role.GERENTE)

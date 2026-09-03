@@ -17,6 +17,9 @@ async function bootstrap() {
   // reflita o cliente real — essencial para o rate limit de login.
   app.set('trust proxy', 1);
 
+  // Importacao de catalogo pode enviar um CSV grande no corpo.
+  app.useBodyParser('json', { limit: '8mb' });
+
   app.setGlobalPrefix('api');
   app.use(helmet());
 

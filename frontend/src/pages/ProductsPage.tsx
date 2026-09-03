@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
+import { ImportProductsModal } from '../components/ImportProductsModal';
 import { categoriesApi, productsApi, type Product } from '../lib/api-client';
 import { brl, num } from '../lib/format';
 import { atLeast } from '../lib/roles';
@@ -66,6 +67,7 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [form, setForm] = useState<ProductForm | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<Product | null>(null);
+  const [showImport, setShowImport] = useState(false);
   const [feedback, setFeedback] = useState('');
 
   const products = useQuery({
@@ -129,9 +131,14 @@ export function ProductsPage() {
           <h1>Produtos</h1>
         </div>
         {canEdit ? (
-          <button className="primary-button" onClick={() => { setFeedback(''); setForm(blank); }}>
-            Novo produto
-          </button>
+          <div className="header-tags">
+            <button className="ghost-button" onClick={() => setShowImport(true)}>
+              Importar CSV
+            </button>
+            <button className="primary-button" onClick={() => { setFeedback(''); setForm(blank); }}>
+              Novo produto
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -342,6 +349,8 @@ export function ProductsPage() {
           ) : null}
         </Modal>
       ) : null}
+
+      {showImport ? <ImportProductsModal onClose={() => setShowImport(false)} /> : null}
 
       {confirmRemove ? (
         <Modal

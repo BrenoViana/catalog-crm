@@ -138,7 +138,22 @@ export const productsApi = {
   update: (id: string, data: Partial<CreateProductInput> & { active?: boolean }) =>
     ApiClient.patch<Product>(`/products/${id}`, data),
   remove: (id: string) => ApiClient.delete<{ message: string }>(`/products/${id}`),
+  importCsv: (csv: string, createCategories = true) =>
+    ApiClient.post<ImportResult>('/products/import', { csv, createCategories }),
 };
+
+export interface ImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  errors: number;
+  rows: Array<{
+    line: number;
+    sku: string;
+    action: 'created' | 'updated' | 'error';
+    message?: string;
+  }>;
+}
 
 // ---------------------------------------------------------------- Estoque
 export interface StockRow {

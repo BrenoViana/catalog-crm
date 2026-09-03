@@ -907,3 +907,13 @@ small {
   .modal-backdrop { padding: 12px; }
   .modal-foot { flex-wrap: wrap; }
 }
+
+.import-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.modal-body textarea.field-input { resize: vertical; }
+.modal-body code {
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+}
