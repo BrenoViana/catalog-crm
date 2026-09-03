@@ -9,6 +9,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -30,12 +31,8 @@ export class SaleItemInput {
   @IsPositive()
   quantity: number;
 
-  /** Se omitido, usa o preco atual do produto. */
-  @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  unitPrice?: number;
-
+  // Desconto por item (em R$). O preco unitario NUNCA vem do cliente —
+  // e sempre o preco cadastrado do produto (ver SalesService.create).
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
@@ -73,7 +70,7 @@ export class CreateSaleDto {
   @IsUUID()
   customerId?: string;
 
-  /** Desconto aplicado sobre o total da venda. */
+  /** Desconto aplicado sobre o total da venda (em R$). */
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
@@ -81,5 +78,6 @@ export class CreateSaleDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   note?: string;
 }

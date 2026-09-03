@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { DecimalInterceptor } from './common/decimal.interceptor';
@@ -10,7 +11,11 @@ if (existsSync('.env')) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Confia no primeiro proxy (load balancer / reverse proxy) para que req.ip
+  // reflita o cliente real — essencial para o rate limit de login.
+  app.set('trust proxy', 1);
 
   app.setGlobalPrefix('api');
   app.use(helmet());

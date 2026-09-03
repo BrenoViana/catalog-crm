@@ -8,19 +8,23 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { CurrentUser } from '../common/current-user.decorator';
+import { Roles } from '../common/roles.decorator';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
-import { Role } from '@prisma/client';
-import { Roles } from '../common/roles.decorator';
 
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
-  findAll(@Query('search') search?: string) {
-    return this.customersService.findAll(search);
+  findAll(
+    @CurrentUser('role') role: Role,
+    @Query('search') search?: string,
+  ) {
+    return this.customersService.findAll(search, role);
   }
 
   @Get(':id')

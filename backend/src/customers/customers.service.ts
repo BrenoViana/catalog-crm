@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -7,18 +8,36 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 export class CustomersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(search?: string) {
+  /**
+   * GERENTE/ADMIN veem a lista completa. OPERADOR so recebe resultado ao
+   * informar um termo de busca (>= 3 caracteres) e com campos reduzidos —
+   * evita expor a base inteira de clientes (CPF, e-mail, nascimento) no PDV.
+   */
+  findAll(search: string | undefined, role: Role) {
+    const isManager = role === Role.ADMIN || role === Role.GERENTE;
+    const term = (search ?? '').trim();
+
+    if (!isManager && term.length < 3) return [];
+
+    const where = term
+      ? {
+          OR: [
+            { name: { contains: term, mode: 'insensitive' as const } },
+            { document: { contains: term } },
+            { phone: { contains: term } },
+          ],
+        }
+      : undefined;
+
     return this.prisma.customer.findMany({
-      where: search
-        ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { document: { contains: search } },
-              { phone: { contains: search } },
-            ],
-          }
-        : undefined,
+      where,
       orderBy: { name: 'asc' },
+      take: 100,
+      ...(isManager
+        ? {}
+        : {
+            select: { id: true, name: true, document: true, phone: true },
+          }),
     });
   }
 

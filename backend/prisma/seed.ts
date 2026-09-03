@@ -13,6 +13,10 @@ const prisma = new PrismaClient({
 
 const hash = (plain: string) => bcrypt.hashSync(plain, 10);
 
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('Seed bloqueado: NODE_ENV=production. Rode migrations e crie os usuarios manualmente.');
+}
+
 async function main() {
   await prisma.cashMovement.deleteMany();
   await prisma.fiscalDocument.deleteMany();

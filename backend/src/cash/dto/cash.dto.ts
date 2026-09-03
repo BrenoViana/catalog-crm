@@ -1,8 +1,10 @@
 import {
   IsIn,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -13,6 +15,7 @@ export class OpenCashDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 }
 
@@ -23,6 +26,7 @@ export class CloseCashDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   notes?: string;
 }
 
@@ -34,7 +38,9 @@ export class CashMovementDto {
   @Min(0.01)
   amount: number;
 
-  @IsOptional()
+  // Justificativa obrigatoria — trilha de auditoria de retirada/reforco de caixa.
   @IsString()
-  reason?: string;
+  @IsNotEmpty()
+  @MaxLength(300)
+  reason: string;
 }
