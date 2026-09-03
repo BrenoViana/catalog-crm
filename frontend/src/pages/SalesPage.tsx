@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
-import { salesApi, type Sale } from '../lib/api-client';
+import { SaleReceipt } from '../components/SaleReceipt';
+import { salesApi, storeSettingsApi, type Sale } from '../lib/api-client';
 import { brl, dateTime, paymentLabel } from '../lib/format';
 
 export function SalesPage() {
@@ -9,6 +10,7 @@ export function SalesPage() {
   const [selected, setSelected] = useState<string | null>(null);
 
   const sales = useQuery({ queryKey: ['sales'], queryFn: () => salesApi.list() });
+  const store = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
   const detail = useQuery({
     queryKey: ['sales', selected],
     queryFn: () => salesApi.get(selected as string),
@@ -116,16 +118,20 @@ export function SalesPage() {
                   NFC-e: <span className="tag">{detail.data.fiscalDocument.status}</span>
                 </p>
               ) : null}
-              {detail.data.status === 'CONCLUIDA' ? (
-                <button
-                  className="danger-button"
-                  style={{ marginTop: 16 }}
-                  disabled={cancel.isPending}
-                  onClick={() => cancel.mutate(detail.data!.id)}
-                >
-                  {cancel.isPending ? 'Cancelando…' : 'Cancelar venda (estorna estoque)'}
+              <div className="row-actions" style={{ marginTop: 16, justifyContent: 'flex-start' }}>
+                <button className="ghost-button" onClick={() => window.print()}>
+                  Reimprimir recibo
                 </button>
-              ) : null}
+                {detail.data.status === 'CONCLUIDA' ? (
+                  <button
+                    className="danger-button"
+                    disabled={cancel.isPending}
+                    onClick={() => cancel.mutate(detail.data!.id)}
+                  >
+                    {cancel.isPending ? 'Cancelando…' : 'Cancelar venda (estorna estoque)'}
+                  </button>
+                ) : null}
+              </div>
               {cancel.error ? (
                 <div className="error-message" style={{ marginTop: 12 }}>
                   {cancel.error instanceof Error ? cancel.error.message : 'Erro'}
@@ -135,6 +141,15 @@ export function SalesPage() {
           ) : null}
         </section>
       </div>
+
+      {detail.data ? (
+        <SaleReceipt
+          sale={detail.data}
+          store={store.data}
+          operatorName={detail.data.operator?.name}
+          customerName={detail.data.customer?.name ?? undefined}
+        />
+      ) : null}
     </Layout>
   );
 }
