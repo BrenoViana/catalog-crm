@@ -9,6 +9,13 @@ node_modules/
 # Production builds
 /build
 /dist
+build/
+dist/
+*.tsbuildinfo
+
+# Generated from vite.config.ts by `tsc`
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Environment variables
 .env
