@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../common/auth.guard';
+import { Body, Controller, Get, Put } from '@nestjs/common';
 import { LicenseService } from './license.service';
 import { UpdateLicenseDto } from './dto/update-license.dto';
+import { Role } from '@prisma/client';
+import { Roles } from '../common/roles.decorator';
 
-@UseGuards(JwtAuthGuard)
+@Roles(Role.ADMIN)
 @Controller('settings')
 export class LicenseController {
   constructor(private readonly licenseService: LicenseService) {}

@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { getJwtSecret } from '../common/jwt-secret';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
 @Module({
   imports: [
     JwtModule.registerAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') ?? 'catalog-crm-secret',
-        signOptions: { expiresIn: '24h' },
+      useFactory: () => ({
+        secret: getJwtSecret(),
+        // '12h' e literal (tipo StringValue do pacote ms); manter assim.
+        signOptions: { expiresIn: '12h' },
       }),
     }),
   ],

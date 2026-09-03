@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../common/auth.guard';
+import { Body, Controller, Get, Put } from '@nestjs/common';
 import { StoreSettingsService } from './store-settings.service';
 import { UpdateStoreSettingsDto } from './dto/update-store-settings.dto';
+import { Role } from '@prisma/client';
+import { Roles } from '../common/roles.decorator';
 
-@UseGuards(JwtAuthGuard)
 @Controller('store-settings')
 export class StoreSettingsController {
   constructor(private readonly storeSettingsService: StoreSettingsService) {}
@@ -13,6 +13,7 @@ export class StoreSettingsController {
     return this.storeSettingsService.get();
   }
 
+  @Roles(Role.ADMIN)
   @Put()
   update(@Body() dto: UpdateStoreSettingsDto) {
     return this.storeSettingsService.update(dto);

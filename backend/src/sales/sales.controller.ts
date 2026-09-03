@@ -5,15 +5,14 @@ import {
   Param,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../common/auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { CancelSaleDto } from './dto/cancel-sale.dto';
+import { Role } from '@prisma/client';
+import { Roles } from '../common/roles.decorator';
 
-@UseGuards(JwtAuthGuard)
 @Controller('sales')
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
@@ -33,6 +32,7 @@ export class SalesController {
     return this.salesService.create(dto, userId);
   }
 
+  @Roles(Role.GERENTE)
   @Post(':id/cancel')
   cancel(
     @Param('id') id: string,

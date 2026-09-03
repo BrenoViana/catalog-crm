@@ -1,17 +1,24 @@
 import { Global, Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { PassportModule } from '@nestjs/passport';
+import { JwtAuthGuard } from './auth.guard';
 import { JwtStrategy } from './jwt.strategy';
+import { RolesGuard } from './roles.guard';
 
 /**
- * Registra a estrategia JWT e o PassportModule globalmente, para que
- * `JwtAuthGuard` funcione em qualquer modulo sem precisar reimportar o Passport.
- * `register({ defaultStrategy: 'jwt' })` provê o token AuthModuleOptions que o
- * AuthGuard resolve por injecao.
+ * Seguranca global da API:
+ * - JwtAuthGuard: toda rota exige um JWT valido, exceto as marcadas com @Public().
+ * - RolesGuard: quando a rota tem @Roles(), restringe pelos papeis (ADMIN sempre passa).
+ * A ordem de registro importa — o JwtAuthGuard roda primeiro e popula req.user.
  */
 @Global()
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'jwt' })],
-  providers: [JwtStrategy],
+  providers: [
+    JwtStrategy,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
   exports: [PassportModule],
 })
 export class CommonModule {}

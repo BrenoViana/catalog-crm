@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../common/auth.guard';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { CurrentUser } from '../common/current-user.decorator';
 import { InventoryService } from './inventory.service';
 import { StockAdjustDto } from './dto/stock-adjust.dto';
+import { Role } from '@prisma/client';
+import { Roles } from '../common/roles.decorator';
 
-@UseGuards(JwtAuthGuard)
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
@@ -24,6 +24,7 @@ export class InventoryController {
     return this.inventoryService.movements(productId);
   }
 
+  @Roles(Role.GERENTE)
   @Post('adjust')
   adjust(@Body() dto: StockAdjustDto, @CurrentUser('userId') userId: string) {
     return this.inventoryService.adjust(dto, userId);

@@ -7,14 +7,13 @@ import {
   Patch,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../common/auth.guard';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { Role } from '@prisma/client';
+import { Roles } from '../common/roles.decorator';
 
-@UseGuards(JwtAuthGuard)
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
@@ -39,6 +38,7 @@ export class CustomersController {
     return this.customersService.update(id, dto);
   }
 
+  @Roles(Role.GERENTE)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.customersService.remove(id);

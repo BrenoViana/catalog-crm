@@ -1,10 +1,8 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../common/auth.guard';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { CurrentUser } from '../common/current-user.decorator';
 import { CashService } from './cash.service';
 import { CashMovementDto, CloseCashDto, OpenCashDto } from './dto/cash.dto';
 
-@UseGuards(JwtAuthGuard)
 @Controller('cash')
 export class CashController {
   constructor(private readonly cashService: CashService) {}

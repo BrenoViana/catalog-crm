@@ -39,6 +39,12 @@ async function main() {
         role: 'ADMIN',
       },
       {
+        username: 'gerente',
+        passwordHash: hash('gerente'),
+        name: 'Gerente da Loja',
+        role: 'GERENTE',
+      },
+      {
         username: 'operador',
         passwordHash: hash('operador'),
         name: 'Operador de Caixa',
@@ -125,7 +131,7 @@ async function main() {
   });
 
   console.log('Seed B2C concluido:');
-  console.log('  usuarios : admin/admin, operador/operador');
+  console.log('  usuarios : admin/admin, gerente/gerente, operador/operador');
   console.log(`  produtos : ${products.length}  |  categorias: 3`);
 }
 

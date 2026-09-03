@@ -13,6 +13,7 @@ import { CashModule } from './cash/cash.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { StoreSettingsModule } from './store-settings/store-settings.module';
 import { LicenseModule } from './license/license.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { LicenseModule } from './license/license.module';
     DashboardModule,
     StoreSettingsModule,
     LicenseModule,
+    HealthModule,
   ],
 })
 export class AppModule {}
