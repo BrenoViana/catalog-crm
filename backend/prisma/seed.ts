@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
@@ -6,166 +7,133 @@ if (existsSync('.env')) {
   process.loadEnvFile('.env');
 }
 
-const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL as string) });
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(process.env.DATABASE_URL as string),
+});
+
+// Hash provisorio ate o modulo de auth passar a usar bcrypt (Fase 1).
+const tempHash = (plain: string) =>
+  'sha256$' + createHash('sha256').update(plain).digest('hex');
 
 async function main() {
-  // Clean up existing data
+  await prisma.cashMovement.deleteMany();
+  await prisma.fiscalDocument.deleteMany();
+  await prisma.payment.deleteMany();
+  await prisma.saleItem.deleteMany();
+  await prisma.stockMovement.deleteMany();
   await prisma.sale.deleteMany();
-  await prisma.opportunity.deleteMany();
-  await prisma.seller.deleteMany();
+  await prisma.cashSession.deleteMany();
+  await prisma.stockItem.deleteMany();
+  await prisma.product.deleteMany();
+  await prisma.taxGroup.deleteMany();
+  await prisma.category.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.storeSettings.deleteMany();
   await prisma.license.deleteMany();
 
-  // Create admin user
-  const adminUser = await prisma.user.create({
+  await prisma.user.createMany({
+    data: [
+      {
+        username: 'admin',
+        passwordHash: tempHash('admin'),
+        name: 'Administrador',
+        role: 'ADMIN',
+      },
+      {
+        username: 'operador',
+        passwordHash: tempHash('operador'),
+        name: 'Operador de Caixa',
+        role: 'OPERADOR',
+      },
+    ],
+  });
+
+  await prisma.storeSettings.create({
     data: {
-      username: 'admin',
-      password: 'admin', // In production, this should be hashed
-      name: 'Administrador',
-      role: 'ADMIN',
+      legalName: 'Loja Demonstracao LTDA',
+      tradeName: 'Loja Demo',
+      cnpj: '00.000.000/0001-00',
+      ie: 'ISENTO',
+      taxRegime: 'SIMPLES_NACIONAL',
+      addressStreet: 'Rua das Flores',
+      addressNumber: '100',
+      addressDistrict: 'Centro',
+      addressCity: 'Sarzedo',
+      addressState: 'MG',
+      addressZip: '32450-000',
+      phone: '(31) 3000-0000',
+      nfceEnvironment: 'homologacao',
     },
   });
 
-  // Create sellers
-  const sellers = await Promise.all([
-    prisma.seller.create({
-      data: {
-        name: 'Ana Paula',
-        email: 'ana@catalog.com',
-        phone: '11 98765-4321',
-        role: 'Varejo',
-        salesTarget: 90000,
-        commissionRate: 6,
-      },
-    }),
-    prisma.seller.create({
-      data: {
-        name: 'Bruno Silva',
-        email: 'bruno@catalog.com',
-        phone: '11 98765-4322',
-        role: 'Corporativo',
-        salesTarget: 110000,
-        commissionRate: 7,
-      },
-    }),
-    prisma.seller.create({
-      data: {
-        name: 'Carla Mendes',
-        email: 'carla@catalog.com',
-        phone: '11 98765-4323',
-        role: 'Atacado',
-        salesTarget: 80000,
-        commissionRate: 5,
-      },
-    }),
+  const [bebidas, mercearia, limpeza] = await Promise.all([
+    prisma.category.create({ data: { name: 'Bebidas' } }),
+    prisma.category.create({ data: { name: 'Mercearia' } }),
+    prisma.category.create({ data: { name: 'Limpeza' } }),
   ]);
 
-  // Create customers
-  const customers = await Promise.all([
-    prisma.customer.create({
-      data: {
-        name: 'Empresa Nova',
-        company: 'Empresa Nova LTDA',
-        email: 'contato@empresanova.com',
-        phone: '11 3456-7890',
-        segment: 'Varejo',
-        status: 'QUALIFIED',
-      },
-    }),
-    prisma.customer.create({
-      data: {
-        name: 'Mercado Central',
-        company: 'Mercado Central S.A.',
-        email: 'contato@mercadocentral.com',
-        phone: '11 3456-7891',
-        segment: 'Distribuição',
-        status: 'PROPOSAL',
-      },
-    }),
-    prisma.customer.create({
-      data: {
-        name: 'Sky One',
-        company: 'Sky One Tech LTDA',
-        email: 'contato@skyone.com',
-        phone: '11 3456-7892',
-        segment: 'Tecnologia',
-        status: 'WON',
-      },
-    }),
-  ]);
+  const taxGroup = await prisma.taxGroup.create({
+    data: {
+      name: 'Revenda - Simples Nacional (CSOSN 102)',
+      origin: 0,
+      cfop: '5102',
+      csosn: '102',
+      description: 'Mercadoria para revenda, sem permissao de credito de ICMS.',
+    },
+  });
 
-  // Create opportunities
-  const opportunities = await Promise.all([
-    prisma.opportunity.create({
-      data: {
-        title: 'Nova Loja - Equipamentos',
-        customerId: customers[0].id,
-        sellerId: sellers[0].id,
-        stage: 'PROSPECTING',
-        amount: 18000,
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        title: 'Mercado Central - Expansão',
-        customerId: customers[1].id,
-        sellerId: sellers[1].id,
-        stage: 'NEGOTIATION',
-        amount: 32000,
-      },
-    }),
-    prisma.opportunity.create({
-      data: {
-        title: 'Sky One - Contrato Anual',
-        customerId: customers[2].id,
-        sellerId: sellers[2].id,
-        stage: 'WON',
-        amount: 46000,
-      },
-    }),
-  ]);
+  const products = [
+    { sku: 'BEB-001', barcode: '7891000100001', name: 'Refrigerante Cola 2L', unit: 'UN', price: '9.90', cost: '6.20', categoryId: bebidas.id, qty: 48 },
+    { sku: 'BEB-002', barcode: '7891000100002', name: 'Agua Mineral 500ml', unit: 'UN', price: '2.50', cost: '1.10', categoryId: bebidas.id, qty: 120 },
+    { sku: 'BEB-003', barcode: '7891000100003', name: 'Suco de Laranja 1L', unit: 'UN', price: '7.49', cost: '4.80', categoryId: bebidas.id, qty: 30 },
+    { sku: 'MER-001', barcode: '7891000200001', name: 'Arroz Branco 5kg', unit: 'UN', price: '27.90', cost: '21.00', categoryId: mercearia.id, qty: 25 },
+    { sku: 'MER-002', barcode: '7891000200002', name: 'Feijao Carioca 1kg', unit: 'UN', price: '8.99', cost: '6.30', categoryId: mercearia.id, qty: 40 },
+    { sku: 'MER-003', barcode: '7891000200003', name: 'Cafe Torrado 500g', unit: 'UN', price: '15.90', cost: '11.50', categoryId: mercearia.id, qty: 6 },
+    { sku: 'MER-004', barcode: null, name: 'Banana Prata (kg)', unit: 'KG', price: '5.99', cost: '3.20', categoryId: mercearia.id, qty: 35 },
+    { sku: 'LIM-001', barcode: '7891000300001', name: 'Detergente Neutro 500ml', unit: 'UN', price: '3.29', cost: '1.90', categoryId: limpeza.id, qty: 60 },
+    { sku: 'LIM-002', barcode: '7891000300002', name: 'Sabao em Po 1kg', unit: 'UN', price: '12.49', cost: '8.70', categoryId: limpeza.id, qty: 4 },
+    { sku: 'LIM-003', barcode: '7891000300003', name: 'Agua Sanitaria 1L', unit: 'UN', price: '4.19', cost: '2.40', categoryId: limpeza.id, qty: 50 },
+  ];
 
-  // Create sales
-  await Promise.all([
-    prisma.sale.create({
+  for (const p of products) {
+    await prisma.product.create({
       data: {
-        opportunityId: opportunities[2].id,
-        amount: 46000,
-        status: 'PAID',
+        sku: p.sku,
+        barcode: p.barcode,
+        name: p.name,
+        unit: p.unit,
+        price: p.price,
+        cost: p.cost,
+        categoryId: p.categoryId,
+        taxGroupId: taxGroup.id,
+        stock: {
+          create: { quantity: p.qty.toString(), minQuantity: '10' },
+        },
       },
-    }),
-    prisma.sale.create({
-      data: {
-        opportunityId: opportunities[0].id,
-        amount: 11400,
-        status: 'PENDING',
-      },
-    }),
-    prisma.sale.create({
-      data: {
-        opportunityId: opportunities[1].id,
-        amount: 7900,
-        status: 'PENDING',
-      },
-    }),
-  ]);
+    });
+  }
 
-  // Create license
+  await prisma.customer.createMany({
+    data: [
+      { name: 'Maria Souza', document: '123.456.789-00', phone: '(31) 98888-1111' },
+      { name: 'Joao Pereira', phone: '(31) 97777-2222' },
+      { name: 'Consumidor Final' },
+    ],
+  });
+
   await prisma.license.create({
-    data: {
-      key: 'DEMO-LICENSE-2024-001',
-      customer: 'Catalog CRM Demo',
-      active: true,
-    },
+    data: { key: 'DEMO-LICENSE-2026-001', customer: 'Loja Demo', active: true },
   });
 
-  console.log('✅ Seed completed successfully');
+  console.log('Seed B2C concluido:');
+  console.log('  usuarios : admin/admin, operador/operador');
+  console.log(`  produtos : ${products.length}  |  categorias: 3`);
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Seed error:', e);
+    console.error('Seed error:', e);
     process.exit(1);
   })
   .finally(async () => {

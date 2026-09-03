@@ -1,3 +1,7 @@
+// Catalog CRM - varejo B2C (catalogo + PDV) para loja unica com atendimento ao publico.
+// Foco: catalogo de produtos, estoque, venda de balcao, caixa por turno e
+// emissao de NFC-e (modelo 65) via gateway fiscal.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -6,91 +10,352 @@ datasource db {
   provider = "postgresql"
 }
 
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
 enum Role {
   ADMIN
-  MANAGER
-  SELLER
+  GERENTE
+  OPERADOR
 }
 
-enum CustomerStatus {
-  LEAD
-  QUALIFIED
-  PROPOSAL
-  NEGOTIATION
-  WON
-  LOST
-}
-
-enum OpportunityStage {
-  PROSPECTING
-  QUALIFICATION
-  PROPOSAL
-  NEGOTIATION
-  WON
-  LOST
+enum StockMovementType {
+  ENTRADA
+  SAIDA
+  AJUSTE
+  VENDA
+  DEVOLUCAO
+  PERDA
 }
 
 enum SaleStatus {
-  PAID
-  PENDING
-  CANCELLED
+  ABERTA
+  CONCLUIDA
+  CANCELADA
 }
 
+enum PaymentMethod {
+  DINHEIRO
+  PIX
+  DEBITO
+  CREDITO
+  CREDIARIO
+  OUTRO
+}
+
+enum FiscalStatus {
+  NAO_EMITIDA
+  PENDENTE
+  AUTORIZADA
+  REJEITADA
+  CANCELADA
+  CONTINGENCIA
+}
+
+enum CashSessionStatus {
+  ABERTA
+  FECHADA
+}
+
+enum CashMovementType {
+  ABERTURA
+  VENDA
+  SANGRIA
+  SUPRIMENTO
+  FECHAMENTO
+}
+
+enum TaxRegime {
+  SIMPLES_NACIONAL
+  SIMPLES_EXCESSO
+  REGIME_NORMAL
+}
+
+// ---------------------------------------------------------------------------
+// Usuarios / acesso
+// ---------------------------------------------------------------------------
+
 model User {
-  id        String   @id @default(uuid())
-  username  String   @unique
-  password  String
-  name      String
-  role      Role     @default(SELLER)
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(OPERADOR)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  sales          Sale[]
+  cashSessions   CashSession[]
+  stockMovements StockMovement[]
+  cashMovements  CashMovement[]
+}
+
+// ---------------------------------------------------------------------------
+// Catalogo
+// ---------------------------------------------------------------------------
+
+model Category {
+  id       String     @id @default(uuid())
+  name     String
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
   createdAt DateTime @default(now())
 }
 
+/// Dados fiscais reutilizaveis por varios produtos (evita repetir NCM/CFOP/CSOSN).
+model TaxGroup {
+  id          String  @id @default(uuid())
+  name        String
+  /// Origem da mercadoria (0=nacional ... 8), conforme tabela da NF-e.
+  origin      Int     @default(0)
+  ncm         String?
+  cest        String?
+  cfop        String  @default("5102")
+  /// CSOSN (Simples) ou CST de ICMS (regime normal).
+  csosn       String  @default("102")
+  cstPis      String  @default("49")
+  cstCofins   String  @default("49")
+  icmsRate    Decimal @default(0) @db.Decimal(6, 2)
+  description String?
+
+  products  Product[]
+  createdAt DateTime @default(now())
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  sku         String   @unique
+  barcode     String?  @unique
+  name        String
+  description String?
+  unit        String   @default("UN")
+  price       Decimal  @db.Decimal(12, 2)
+  cost        Decimal? @db.Decimal(12, 2)
+  imageUrl    String?
+  active      Boolean  @default(true)
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+  taxGroupId String?
+  taxGroup   TaxGroup? @relation(fields: [taxGroupId], references: [id])
+
+  stock          StockItem?
+  saleItems      SaleItem[]
+  stockMovements StockMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Estoque
+// ---------------------------------------------------------------------------
+
+model StockItem {
+  id          String   @id @default(uuid())
+  productId   String   @unique
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Decimal  @default(0) @db.Decimal(12, 3)
+  minQuantity Decimal  @default(0) @db.Decimal(12, 3)
+  updatedAt   DateTime @updatedAt
+}
+
+model StockMovement {
+  id        String            @id @default(uuid())
+  productId String
+  product   Product           @relation(fields: [productId], references: [id])
+  type      StockMovementType
+  quantity  Decimal           @db.Decimal(12, 3)
+  reason    String?
+  userId    String?
+  user      User?             @relation(fields: [userId], references: [id])
+  saleId    String?
+  sale      Sale?             @relation(fields: [saleId], references: [id])
+  createdAt DateTime          @default(now())
+
+  @@index([productId])
+}
+
+// ---------------------------------------------------------------------------
+// Clientes (B2C, leve; opcional na venda)
+// ---------------------------------------------------------------------------
+
 model Customer {
-  id        String         @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
-  company   String
-  email     String?
+  document  String? // CPF
   phone     String?
-  segment   String?
-  status    CustomerStatus @default(LEAD)
-  createdAt DateTime       @default(now())
-  deals     Opportunity[]
+  email     String?
+  birthDate DateTime?
+  notes     String?
+  createdAt DateTime  @default(now())
+
+  sales Sale[]
+
+  @@index([document])
 }
 
-model Seller {
-  id             String       @id @default(uuid())
-  name           String
-  email          String?
-  phone          String?
-  role           String?
-  salesTarget    Float        @default(0)
-  commissionRate Float        @default(0)
-  createdAt      DateTime     @default(now())
-  deals          Opportunity[]
-}
-
-model Opportunity {
-  id               String            @id @default(uuid())
-  title            String
-  customerId       String
-  sellerId         String
-  stage            OpportunityStage  @default(PROSPECTING)
-  amount           Float             @default(0)
-  expectedCloseDate DateTime?
-  notes            String?
-  createdAt        DateTime          @default(now())
-  customer         Customer          @relation(fields: [customerId], references: [id])
-  seller           Seller            @relation(fields: [sellerId], references: [id])
-  sales            Sale[]
-}
+// ---------------------------------------------------------------------------
+// Vendas / PDV
+// ---------------------------------------------------------------------------
 
 model Sale {
-  id           String     @id @default(uuid())
-  opportunityId String
-  amount       Float      @default(0)
-  status       SaleStatus @default(PENDING)
-  createdAt    DateTime   @default(now())
-  opportunity  Opportunity @relation(fields: [opportunityId], references: [id])
+  id       String     @id @default(uuid())
+  number   Int        @unique
+  status   SaleStatus @default(ABERTA)
+  subtotal Decimal    @default(0) @db.Decimal(12, 2)
+  discount Decimal    @default(0) @db.Decimal(12, 2)
+  total    Decimal    @default(0) @db.Decimal(12, 2)
+  note     String?
+
+  customerId    String?
+  customer      Customer?    @relation(fields: [customerId], references: [id])
+  operatorId    String
+  operator      User         @relation(fields: [operatorId], references: [id])
+  cashSessionId String?
+  cashSession   CashSession? @relation(fields: [cashSessionId], references: [id])
+
+  items          SaleItem[]
+  payments       Payment[]
+  fiscalDocument FiscalDocument?
+  stockMovements StockMovement[]
+  cashMovements  CashMovement[]
+
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+  canceledAt   DateTime?
+  cancelReason String?
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SaleItem {
+  id          String  @id @default(uuid())
+  saleId      String
+  sale        Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  description String // snapshot do nome do produto no momento da venda
+  quantity    Decimal @db.Decimal(12, 3)
+  unitPrice   Decimal @db.Decimal(12, 2) // snapshot do preco
+  discount    Decimal @default(0) @db.Decimal(12, 2)
+  total       Decimal @db.Decimal(12, 2)
+
+  @@index([saleId])
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  saleId       String
+  sale         Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  method       PaymentMethod
+  amount       Decimal       @db.Decimal(12, 2)
+  installments Int?
+  createdAt    DateTime      @default(now())
+
+  @@index([saleId])
+}
+
+// ---------------------------------------------------------------------------
+// Fiscal (NFC-e modelo 65)
+// ---------------------------------------------------------------------------
+
+model FiscalDocument {
+  id              String       @id @default(uuid())
+  saleId          String       @unique
+  sale            Sale         @relation(fields: [saleId], references: [id])
+  model           Int          @default(65)
+  series          Int
+  number          Int
+  status          FiscalStatus @default(PENDENTE)
+  environment     String       @default("homologacao")
+  accessKey       String?      @unique
+  protocol        String?
+  xmlUrl          String?
+  danfeUrl        String?
+  rejectionReason String?
+  issuedAt        DateTime?
+  canceledAt      DateTime?
+  createdAt       DateTime     @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Caixa (sessao por turno)
+// ---------------------------------------------------------------------------
+
+model CashSession {
+  id                    String            @id @default(uuid())
+  operatorId            String
+  operator              User              @relation(fields: [operatorId], references: [id])
+  status                CashSessionStatus @default(ABERTA)
+  openingAmount         Decimal           @db.Decimal(12, 2)
+  openedAt              DateTime          @default(now())
+  closingCountedAmount  Decimal?          @db.Decimal(12, 2)
+  closingExpectedAmount Decimal?          @db.Decimal(12, 2)
+  difference            Decimal?          @db.Decimal(12, 2)
+  closedAt              DateTime?
+  notes                 String?
+
+  sales     Sale[]
+  movements CashMovement[]
+
+  @@index([status])
+}
+
+model CashMovement {
+  id            String           @id @default(uuid())
+  cashSessionId String
+  cashSession   CashSession      @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+  type          CashMovementType
+  amount        Decimal          @db.Decimal(12, 2)
+  reason        String?
+  userId        String?
+  user          User?            @relation(fields: [userId], references: [id])
+  saleId        String?
+  sale          Sale?            @relation(fields: [saleId], references: [id])
+  createdAt     DateTime         @default(now())
+
+  @@index([cashSessionId])
+}
+
+// ---------------------------------------------------------------------------
+// Configuracao da loja (registro unico) e licenca
+// ---------------------------------------------------------------------------
+
+model StoreSettings {
+  id        String    @id @default(uuid())
+  legalName String
+  tradeName String?
+  cnpj      String
+  ie        String?
+  im        String?
+  taxRegime TaxRegime @default(SIMPLES_NACIONAL)
+
+  addressStreet     String
+  addressNumber     String
+  addressComplement String?
+  addressDistrict   String
+  addressCity       String
+  addressState      String
+  addressZip        String
+  phone             String?
+  email             String?
+
+  // NFC-e
+  nfceSeries          Int     @default(1)
+  nfceNextNumber      Int     @default(1)
+  nfceEnvironment     String  @default("homologacao")
+  nfceCscId           String?
+  nfceCsc             String?
+  fiscalProvider      String? // ex.: "focusnfe", "plugnotas"
+  fiscalProviderToken String?
+
+  updatedAt DateTime @updatedAt
 }
 
 model License {
