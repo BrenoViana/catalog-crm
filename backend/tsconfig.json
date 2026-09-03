@@ -18,6 +18,7 @@
     "skipLibCheck": true,
     "strict": true,
     "strictBindCallApply": false,
+    "strictPropertyInitialization": false,
     "noImplicitAny": false,
     "types": ["node"]
   },
