@@ -1,15 +1,19 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
+import { SaleReceipt } from '../components/SaleReceipt';
 import {
   cashApi,
   customersApi,
   productsApi,
   salesApi,
+  storeSettingsApi,
   type PaymentMethod,
   type Product,
+  type Sale,
 } from '../lib/api-client';
 import { brl, paymentLabel } from '../lib/format';
+import { useAuthStore } from '../store/authStore';
 
 interface CartLine {
   product: Product;
@@ -18,18 +22,32 @@ interface CartLine {
 
 const METHODS: PaymentMethod[] = ['DINHEIRO', 'PIX', 'DEBITO', 'CREDITO'];
 
+/** Um leitor de código de barras "digita" rápido e finaliza com Enter. */
+const SCAN_GAP_MS = 60;
+
+function isTypingTarget(el: EventTarget | null) {
+  const node = el as HTMLElement | null;
+  if (!node) return false;
+  const tag = node.tagName;
+  return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+}
+
 export function PdvPage() {
   const queryClient = useQueryClient();
+  const operatorName = useAuthStore((s) => s.user?.name);
   const [term, setTerm] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('DINHEIRO');
   const [tendered, setTendered] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [scanMiss, setScanMiss] = useState<string | null>(null);
+  const [lastSale, setLastSale] = useState<Sale | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const cash = useQuery({ queryKey: ['cash', 'current'], queryFn: cashApi.current });
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => customersApi.list() });
+  const store = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
   const results = useQuery({
     queryKey: ['products', 'pdv', term],
     queryFn: () => productsApi.list({ search: term, onlyActive: true }),
@@ -42,7 +60,8 @@ export function PdvPage() {
   );
   const change = Math.max(0, (Number(tendered) || 0) - total);
 
-  const addToCart = (product: Product) => {
+  const addToCart = useCallback((product: Product) => {
+    setScanMiss(null);
     setCart((prev) => {
       const found = prev.find((l) => l.product.id === product.id);
       if (found) {
@@ -54,7 +73,7 @@ export function PdvPage() {
     });
     setTerm('');
     searchRef.current?.focus();
-  };
+  }, []);
 
   const setQty = (id: string, quantity: number) =>
     setCart((prev) =>
@@ -63,10 +82,29 @@ export function PdvPage() {
         .filter((l) => l.quantity > 0),
     );
 
+  /** Resolve um código exato (barras/SKU); se não achar, tenta a busca textual. */
+  const resolveCode = useCallback(
+    async (raw: string) => {
+      const code = raw.trim();
+      if (!code) return;
+      try {
+        const product = await productsApi.byCode(code);
+        addToCart(product);
+      } catch {
+        if (results.data && results.data.length > 0) {
+          addToCart(results.data[0]);
+        } else {
+          setScanMiss(code);
+        }
+      }
+    },
+    [addToCart, results.data],
+  );
+
   const onSearchKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && results.data && results.data.length > 0) {
-      addToCart(results.data[0]);
-    }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    void resolveCode(term);
   };
 
   const sale = useMutation({
@@ -78,6 +116,7 @@ export function PdvPage() {
       }),
     onSuccess: (created) => {
       setFeedback(`Venda #${created.number} concluída — ${brl(created.total)}`);
+      setLastSale(created);
       setCart([]);
       setTendered('');
       setCustomerId('');
@@ -93,6 +132,58 @@ export function PdvPage() {
     (method !== 'DINHEIRO' || (Number(tendered) || 0) >= total) &&
     !sale.isPending;
 
+  const printReceipt = useCallback(() => {
+    if (!lastSale) return;
+    window.print();
+  }, [lastSale]);
+
+  // Atalhos de teclado do balcão.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        if (canFinish) sale.mutate();
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        printReceipt();
+      } else if (e.key === 'Escape') {
+        if (cart.length > 0) {
+          setCart([]);
+          setTendered('');
+          setScanMiss(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canFinish, cart.length, printReceipt, sale]);
+
+  // Buffer de leitor de código de barras quando o foco não está num campo.
+  useEffect(() => {
+    let buffer = '';
+    let last = 0;
+    const onKey = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      const now = Date.now();
+      if (now - last > SCAN_GAP_MS) buffer = '';
+      last = now;
+      if (e.key === 'Enter') {
+        if (buffer.length >= 3) void resolveCode(buffer);
+        buffer = '';
+      } else if (e.key.length === 1) {
+        buffer += e.key;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [resolveCode]);
+
+  const customerName = customers.data?.find((c) => c.id === customerId)?.name;
+
   return (
     <Layout>
       <div className="page-header">
@@ -105,13 +196,36 @@ export function PdvPage() {
         </span>
       </div>
 
+      <p className="pdv-shortcuts">
+        <kbd>F2</kbd> buscar · <kbd>F4</kbd> finalizar · <kbd>F9</kbd> imprimir recibo ·{' '}
+        <kbd>Esc</kbd> limpar · <kbd>Enter</kbd> / leitor de código de barras adiciona o item
+      </p>
+
       {!cash.data && !cash.isLoading ? (
         <div className="error-message">
           Nenhum caixa aberto — a venda será registrada, mas não entrará no controle de caixa.
           Abra o caixa em <strong>Caixa</strong>.
         </div>
       ) : null}
-      {feedback ? <div className="success-message">{feedback}</div> : null}
+      {feedback ? (
+        <div className="success-message">
+          {feedback}
+          {lastSale ? (
+            <button
+              className="mini-button"
+              style={{ marginLeft: 12 }}
+              onClick={printReceipt}
+            >
+              Imprimir recibo (F9)
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {scanMiss ? (
+        <div className="error-message">
+          Código <strong>{scanMiss}</strong> não encontrado no catálogo.
+        </div>
+      ) : null}
       {sale.error ? (
         <div className="error-message">
           {sale.error instanceof Error ? sale.error.message : 'Erro ao finalizar a venda'}
@@ -236,6 +350,15 @@ export function PdvPage() {
           </button>
         </section>
       </div>
+
+      {lastSale ? (
+        <SaleReceipt
+          sale={lastSale}
+          store={store.data}
+          operatorName={operatorName}
+          customerName={lastSale.customer?.name ?? customerName}
+        />
+      ) : null}
     </Layout>
   );
 }

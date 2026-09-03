@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { dashboardApi } from '../lib/api-client';
-import { brl, num, paymentLabel } from '../lib/format';
+import { brl, dateTime, num, paymentLabel } from '../lib/format';
 
 export function DashboardPage() {
   const { data, isLoading, error } = useQuery({
@@ -30,11 +31,16 @@ export function DashboardPage() {
         </div>
         <div className="header-tags">
           <span className={`tag ${data?.cashOpen ? 'tag-success' : 'tag-warning'}`}>
-            {data?.cashOpen ? 'Caixa aberto' : 'Caixa fechado'}
+            {data?.openCashCount
+              ? `${data.openCashCount} caixa${data.openCashCount > 1 ? 's' : ''} aberto${data.openCashCount > 1 ? 's' : ''}`
+              : 'Nenhum caixa aberto'}
           </span>
-          <span className={`tag ${data && data.lowStockCount > 0 ? 'tag-warning' : ''}`}>
+          <Link
+            to="/estoque?ruptura=1"
+            className={`tag tag-link ${data && data.lowStockCount > 0 ? 'tag-warning' : ''}`}
+          >
             {num(data?.lowStockCount)} em ruptura
-          </span>
+          </Link>
         </div>
       </div>
 
@@ -94,6 +100,28 @@ export function DashboardPage() {
           </ul>
         </section>
       </div>
+
+      {data && data.openCashSessions.length > 0 ? (
+        <section className="panel" style={{ marginTop: 20 }}>
+          <div className="panel-header">
+            <h2>Caixas abertos na loja</h2>
+          </div>
+          <ul className="list-rows">
+            {data.openCashSessions.map((s) => (
+              <li key={s.id}>
+                <span>
+                  {s.operatorName} <small>· aberto em {dateTime(s.openedAt)}</small>
+                </span>
+                <strong>{brl(s.expectedAmount)}</strong>
+              </li>
+            ))}
+          </ul>
+          <p className="muted" style={{ marginTop: 8 }}>
+            Saldo esperado em dinheiro por turno — o mesmo número que cada operador vê na
+            tela de <Link to="/caixa">Caixa</Link>.
+          </p>
+        </section>
+      ) : null}
 
       <section className="panel" style={{ marginTop: 20 }}>
         <div className="panel-header">

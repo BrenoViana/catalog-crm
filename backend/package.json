@@ -10,7 +10,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "test": "npm run test:e2e",
+    "test:e2e": "ts-node -r tsconfig-paths/register test/checkout.e2e.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

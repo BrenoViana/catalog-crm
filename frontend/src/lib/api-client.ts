@@ -72,6 +72,14 @@ export interface DashboardSummary {
   activeProducts: number;
   lowStockCount: number;
   cashOpen: boolean;
+  openCashCount: number;
+  openCashSessions: Array<{
+    id: string;
+    operatorId: string;
+    operatorName: string;
+    openedAt: string;
+    expectedAmount: number;
+  }>;
   salesLast7Days: Array<{ date: string; label: string; value: number }>;
   topProducts: Array<{ name: string; quantity: number; value: number }>;
   paymentsByMethod: Array<{ method: string; value: number }>;

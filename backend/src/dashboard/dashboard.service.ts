@@ -4,6 +4,18 @@ import { PrismaService } from '../prisma/prisma.service';
 
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 
+/** Saldo esperado em dinheiro: abertura + vendas/suprimentos - sangrias. */
+function expectedCash(session: {
+  openingAmount: Prisma.Decimal;
+  movements: { type: string; amount: Prisma.Decimal }[];
+}) {
+  return session.movements.reduce((acc, m) => {
+    if (m.type === 'VENDA' || m.type === 'SUPRIMENTO') return acc.plus(m.amount);
+    if (m.type === 'SANGRIA') return acc.minus(m.amount);
+    return acc;
+  }, D(session.openingAmount));
+}
+
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
@@ -20,7 +32,7 @@ export class DashboardService {
       last7,
       topProducts,
       paymentsToday,
-      openCash,
+      openSessions,
     ] = await Promise.all([
       this.prisma.sale.findMany({
         where: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
@@ -45,7 +57,14 @@ export class DashboardService {
           sale: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
         },
       }),
-      this.prisma.cashSession.findFirst({ where: { status: 'ABERTA' } }),
+      this.prisma.cashSession.findMany({
+        where: { status: 'ABERTA' },
+        orderBy: { openedAt: 'asc' },
+        include: {
+          operator: { select: { id: true, name: true } },
+          movements: { select: { type: true, amount: true } },
+        },
+      }),
     ]);
 
     const revenueToday = salesToday.reduce((acc, s) => acc.plus(s.total), D(0));
@@ -54,6 +73,16 @@ export class DashboardService {
       D(s.quantity).lte(s.minQuantity),
     ).length;
 
+    // Indicador de caixa da loja inteira: uma linha por turno aberto, com o
+    // mesmo saldo esperado que a tela de Caixa mostra ao operador.
+    const openCashSessions = openSessions.map((s) => ({
+      id: s.id,
+      operatorId: s.operatorId,
+      operatorName: s.operator?.name ?? '—',
+      openedAt: s.openedAt,
+      expectedAmount: expectedCash(s).toNumber(),
+    }));
+
     return {
       revenueToday: revenueToday.toNumber(),
       salesToday: count,
@@ -61,7 +90,9 @@ export class DashboardService {
       itemsSoldToday: Number(itemsAgg._sum.quantity ?? 0),
       activeProducts,
       lowStockCount: lowStock,
-      cashOpen: Boolean(openCash),
+      cashOpen: openCashSessions.length > 0,
+      openCashCount: openCashSessions.length,
+      openCashSessions,
       salesLast7Days: last7,
       topProducts,
       paymentsByMethod: paymentsToday.map((p) => ({

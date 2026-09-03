@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { inventoryApi } from '../lib/api-client';
 import { num } from '../lib/format';
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
-  const [onlyLow, setOnlyLow] = useState(false);
+  const [searchParams] = useSearchParams();
+  // O dashboard linka "X em ruptura" para cá já filtrado.
+  const [onlyLow, setOnlyLow] = useState(searchParams.get('ruptura') === '1');
   const [adjust, setAdjust] = useState<{
     productId: string;
     name: string;

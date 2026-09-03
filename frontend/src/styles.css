@@ -917,3 +917,59 @@ small {
   padding: 1px 5px;
   font-size: 0.85em;
 }
+
+/* ---------------------------------------------------------------- PDV: atalhos + recibo */
+a.tag-link { text-decoration: none; cursor: pointer; }
+a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-soft); }
+
+.pdv-shortcuts {
+  margin: -4px 0 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.pdv-shortcuts kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+/* Recibo fica fora do fluxo visual — só é pintado na impressão. */
+.receipt {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 72mm;
+  color: #000;
+  background: #fff;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.receipt-center { text-align: center; }
+.receipt-strong { font-weight: 700; }
+.receipt-muted { color: #000; font-size: 11px; }
+.receipt-total { font-size: 14px; }
+.receipt-rule { border-top: 1px dashed #000; margin: 6px 0; }
+.receipt-row { display: flex; justify-content: space-between; gap: 12px; }
+.receipt-items { width: 100%; border-collapse: collapse; }
+.receipt-items td { vertical-align: top; padding: 2px 0; }
+.receipt-items-desc { padding-right: 8px; }
+.receipt-items-total { text-align: right; white-space: nowrap; }
+
+@media print {
+  @page { size: 72mm auto; margin: 3mm; }
+  body { background: #fff; }
+  body * { visibility: hidden; }
+  #receipt-print, #receipt-print * { visibility: visible; }
+  #receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
