@@ -193,23 +193,54 @@ h2 {
   gap: 8px;
 }
 
-.nav-item {
-  padding: 12px 14px;
-  border-radius: 12px;
+.nav-item,
+.nav-subitem {
+  display: block;
   color: #dfe9ff;
   text-decoration: none;
-  transition: all 0.18s ease;
+  border-radius: 12px;
   border: 1px solid transparent;
+  transition: all 0.18s ease;
+}
+
+.nav-item {
+  padding: 12px 14px;
+}
+
+.nav-group {
+  display: grid;
+  gap: 4px;
+}
+
+.nav-group-title {
+  padding: 10px 14px 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.nav-subitem {
+  padding: 10px 14px 10px 24px;
+  font-size: 0.94rem;
 }
 
 .nav-item.active,
-.nav-item:hover {
+.nav-item:hover,
+.nav-subitem.active,
+.nav-subitem:hover {
   background: rgba(124, 156, 255, 0.12);
   border-color: rgba(124, 156, 255, 0.26);
 }
 
-.user-box {
+.sidebar-footer {
   margin-top: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.user-box {
   display: flex;
   align-items: center;
   justify-content: space-between;
