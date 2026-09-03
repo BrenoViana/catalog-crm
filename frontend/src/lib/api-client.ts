@@ -85,12 +85,14 @@ export interface Category {
   id: string;
   name: string;
   parentId: string | null;
-  _count?: { products: number };
+  _count?: { products: number; children: number };
 }
 export const categoriesApi = {
   list: () => ApiClient.get<Category[]>('/categories'),
   create: (data: { name: string; parentId?: string }) =>
     ApiClient.post<Category>('/categories', data),
+  update: (id: string, data: { name: string; parentId?: string }) =>
+    ApiClient.patch<Category>(`/categories/${id}`, data),
   remove: (id: string) => ApiClient.delete<{ message: string }>(`/categories/${id}`),
 };
 

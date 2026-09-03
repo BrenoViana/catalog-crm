@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { PdvPage } from './pages/PdvPage';
 import { ProductsPage } from './pages/ProductsPage';
+import { CategoriesPage } from './pages/CategoriesPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { SalesPage } from './pages/SalesPage';
 import { CustomersPage } from './pages/CustomersPage';
@@ -36,6 +37,7 @@ function App() {
       <Route path="/pdv" element={<Private><PdvPage /></Private>} />
       <Route path="/dashboard" element={<Guard min="GERENTE"><DashboardPage /></Guard>} />
       <Route path="/produtos" element={<Private><ProductsPage /></Private>} />
+      <Route path="/categorias" element={<Guard min="GERENTE"><CategoriesPage /></Guard>} />
       <Route path="/estoque" element={<Private><InventoryPage /></Private>} />
       <Route path="/vendas" element={<Private><SalesPage /></Private>} />
       <Route path="/clientes" element={<Private><CustomersPage /></Private>} />

@@ -24,6 +24,7 @@ const nav: NavEntry[] = [
     group: 'Cadastros',
     items: [
       { to: '/produtos', label: 'Produtos' },
+      { to: '/categorias', label: 'Categorias', min: 'GERENTE' },
       { to: '/clientes', label: 'Clientes' },
       { to: '/estoque', label: 'Estoque' },
     ],
