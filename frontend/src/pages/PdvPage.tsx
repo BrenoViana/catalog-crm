@@ -393,17 +393,12 @@ export function PdvPage() {
           </section>
 
           <section className="panel pdv-checkout">
+            <div className="cart-summary">
+              <span>Total</span>
+              <strong>{brl(total)}</strong>
+            </div>
+
             <div className="cart-totals">
-              <div className="cart-totals-row">
-                <span>Subtotal</span>
-                <span>{brl(grossSubtotal)}</span>
-              </div>
-              {itemDiscountTotal > 0 ? (
-                <div className="cart-totals-row">
-                  <span>Descontos nos itens</span>
-                  <span>−{brl(itemDiscountTotal)}</span>
-                </div>
-              ) : null}
               <label className="field">
                 <span>Desconto na venda</span>
                 <input
@@ -417,11 +412,6 @@ export function PdvPage() {
                   <small className="muted">Limite do operador: {Number(discountLimit).toFixed(0)}%</small>
                 ) : null}
               </label>
-            </div>
-
-            <div className="cart-summary">
-              <span>Total</span>
-              <strong>{brl(total)}</strong>
             </div>
 
           <label className="field">
@@ -565,6 +555,19 @@ export function PdvPage() {
               ))}
             </ul>
           )}
+
+          <div className="cart-totals cart-subtotal">
+            <div className="cart-totals-row">
+              <span>Subtotal</span>
+              <span>{brl(grossSubtotal)}</span>
+            </div>
+            {itemDiscountTotal > 0 ? (
+              <div className="cart-totals-row">
+                <span>Descontos nos itens</span>
+                <span>−{brl(itemDiscountTotal)}</span>
+              </div>
+            ) : null}
+          </div>
         </section>
       </div>
 
