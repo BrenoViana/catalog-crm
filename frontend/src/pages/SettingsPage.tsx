@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { licenseApi, storeSettingsApi, type StoreSettings } from '../lib/api-client';
 
-type Form = Partial<StoreSettings>;
+/** Durante a edição alguns campos numéricos carregam o texto cru do input. */
+type Form = { [K in keyof StoreSettings]?: StoreSettings[K] | string };
 
 /** Campos que o backend aceita no PUT — o GET devolve mais que isso (id, updatedAt, flags). */
 const EDITABLE = [
@@ -25,6 +26,7 @@ const EDITABLE = [
   'logoLightUrl',
   'logoDarkUrl',
   'nfceEnvironment',
+  'maxDiscountPercentOperator',
 ] as const satisfies readonly (keyof StoreSettings)[];
 
 const MAX_LOGO_BYTES = 512 * 1024;
@@ -34,6 +36,10 @@ function toPayload(form: Form): Partial<StoreSettings> {
   for (const key of EDITABLE) {
     const value = form[key];
     if (value === undefined) continue;
+    if (key === 'maxDiscountPercentOperator') {
+      payload[key] = Number(value) || 0;
+      continue;
+    }
     payload[key] = value === null ? '' : value;
   }
   return payload as Partial<StoreSettings>;
@@ -233,6 +239,26 @@ export function SettingsPage() {
         <p className="muted" style={{ marginTop: 12 }}>
           Certificado digital, CSC e gateway fiscal serão configurados na etapa de
           integração da NFC-e.
+        </p>
+      </section>
+
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header">
+          <h2>Política de desconto</h2>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>Limite de desconto do operador (%)</span>
+            <input
+              inputMode="decimal"
+              value={form.maxDiscountPercentOperator ?? ''}
+              onChange={(e) => set('maxDiscountPercentOperator', e.target.value)}
+            />
+          </label>
+        </div>
+        <p className="muted" style={{ marginTop: 12 }}>
+          Desconto total (itens + venda) que um operador pode conceder no PDV sem liberação.
+          Gerente e administrador não têm limite.
         </p>
       </section>
 

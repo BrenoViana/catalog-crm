@@ -14,15 +14,28 @@ import {
   type Product,
   type Sale,
 } from '../lib/api-client';
-import { brl, paymentLabel } from '../lib/format';
+import { brl, paymentLabel, resolveDiscount, round2, toNumber } from '../lib/format';
 import { useAuthStore } from '../store/authStore';
 
 interface CartLine {
   product: Product;
   quantity: number;
+  /** Desconto do item em R$ (texto do campo). */
+  discount: string;
+}
+
+interface PayRow {
+  method: PaymentMethod;
+  /** Valor em R$ (texto). Em branco = "o que faltar para fechar a venda". */
+  amount: string;
+  installments: number;
 }
 
 const METHODS: PaymentMethod[] = ['DINHEIRO', 'PIX', 'DEBITO', 'CREDITO'];
+const MAX_INSTALLMENTS = 12;
+const EPS = 0.005;
+
+const newPayRow = (method: PaymentMethod): PayRow => ({ method, amount: '', installments: 1 });
 
 /** Um leitor de código de barras "digita" rápido e finaliza com Enter. */
 const SCAN_GAP_MS = 60;
@@ -34,14 +47,34 @@ function isTypingTarget(el: EventTarget | null) {
   return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
 }
 
+/**
+ * Valores efetivos de cada pagamento: linhas com valor digitado valem o que
+ * foi digitado; linhas em branco absorvem o que ainda falta (a primeira pega
+ * tudo o que resta), permitindo dividir o pagamento sem digitar todos os valores.
+ */
+function settlePayments(rows: PayRow[], total: number): number[] {
+  const explicitSum = rows.reduce(
+    (acc, r) => acc + (r.amount.trim() === '' ? 0 : Math.max(0, toNumber(r.amount))),
+    0,
+  );
+  let leftover = round2(Math.max(0, total - explicitSum));
+  return rows.map((r) => {
+    if (r.amount.trim() !== '') return round2(Math.max(0, toNumber(r.amount)));
+    const take = leftover;
+    leftover = 0;
+    return take;
+  });
+}
+
 export function PdvPage() {
   const queryClient = useQueryClient();
   const operatorName = useAuthStore((s) => s.user?.name);
+  const operatorRole = useAuthStore((s) => s.user?.role);
   const [term, setTerm] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [saleDiscount, setSaleDiscount] = useState('');
   const [customerId, setCustomerId] = useState('');
-  const [method, setMethod] = useState<PaymentMethod>('DINHEIRO');
-  const [tendered, setTendered] = useState('');
+  const [payments, setPayments] = useState<PayRow[]>([newPayRow('DINHEIRO')]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [scanMiss, setScanMiss] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
@@ -58,12 +91,49 @@ export function PdvPage() {
     enabled: term.trim().length >= 2,
   });
 
-  const total = useMemo(
-    () => cart.reduce((acc, l) => acc + l.product.price * l.quantity, 0),
-    [cart],
+  // ---------------------------------------------------------------- Totais
+  const lineGross = useCallback((l: CartLine) => l.product.price * l.quantity, []);
+  const lineDiscount = useCallback(
+    (l: CartLine) => resolveDiscount(l.discount, lineGross(l)),
+    [lineGross],
   );
-  const change = Math.max(0, (Number(tendered) || 0) - total);
+  const lineTotal = useCallback(
+    (l: CartLine) => round2(lineGross(l) - lineDiscount(l)),
+    [lineGross, lineDiscount],
+  );
 
+  const grossSubtotal = useMemo(
+    () => round2(cart.reduce((acc, l) => acc + lineGross(l), 0)),
+    [cart, lineGross],
+  );
+  const itemDiscountTotal = useMemo(
+    () => round2(cart.reduce((acc, l) => acc + lineDiscount(l), 0)),
+    [cart, lineDiscount],
+  );
+  const netSubtotal = round2(grossSubtotal - itemDiscountTotal);
+  const saleDisc = resolveDiscount(saleDiscount, netSubtotal);
+  const total = round2(netSubtotal - saleDisc);
+
+  // Politica de desconto: teto do operador (itens + venda sobre o bruto).
+  const discountPct =
+    grossSubtotal > 0 ? ((grossSubtotal - total) / grossSubtotal) * 100 : 0;
+  const discountLimit = store.data?.maxDiscountPercentOperator ?? null;
+  const overDiscountLimit =
+    operatorRole === 'OPERADOR' &&
+    discountLimit != null &&
+    discountPct > discountLimit + 0.01;
+
+  const effective = useMemo(() => settlePayments(payments, total), [payments, total]);
+  const paid = round2(effective.reduce((acc, v) => acc + v, 0));
+  const cashPaid = round2(
+    effective.reduce((acc, v, i) => acc + (payments[i]?.method === 'DINHEIRO' ? v : 0), 0),
+  );
+  const nonCashPaid = round2(paid - cashPaid);
+  const falta = round2(Math.max(0, total - paid));
+  const troco = round2(Math.min(Math.max(0, paid - total), cashPaid));
+  const nonCashOverpay = nonCashPaid > total + EPS;
+
+  // ---------------------------------------------------------------- Carrinho
   const addToCart = useCallback((product: Product) => {
     setScanMiss(null);
     setCart((prev) => {
@@ -73,7 +143,7 @@ export function PdvPage() {
           l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l,
         );
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: 1, discount: '' }];
     });
     setTerm('');
     searchRef.current?.focus();
@@ -85,6 +155,9 @@ export function PdvPage() {
         .map((l) => (l.product.id === id ? { ...l, quantity } : l))
         .filter((l) => l.quantity > 0),
     );
+
+  const setLineDiscount = (id: string, discount: string) =>
+    setCart((prev) => prev.map((l) => (l.product.id === id ? { ...l, discount } : l)));
 
   /** Resolve um código exato (barras/SKU); se não achar, tenta a busca textual. */
   const resolveCode = useCallback(
@@ -111,19 +184,47 @@ export function PdvPage() {
     void resolveCode(term);
   };
 
+  // ---------------------------------------------------------------- Pagamentos
+  const setPay = (i: number, patch: Partial<PayRow>) =>
+    setPayments((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addPay = () =>
+    setPayments((prev) => [
+      ...prev,
+      newPayRow(prev.some((r) => r.method === 'DINHEIRO') ? 'PIX' : 'DINHEIRO'),
+    ]);
+  const removePay = (i: number) =>
+    setPayments((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
+
+  const resetSale = () => {
+    setCart([]);
+    setSaleDiscount('');
+    setPayments([newPayRow('DINHEIRO')]);
+    setCustomerId('');
+    setScanMiss(null);
+  };
+
   const sale = useMutation({
     mutationFn: () =>
       salesApi.create({
-        items: cart.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
-        payments: [{ method, amount: method === 'DINHEIRO' ? total : Number(tendered) || total }],
+        items: cart.map((l) => ({
+          productId: l.product.id,
+          quantity: l.quantity,
+          discount: lineDiscount(l) > 0 ? round2(lineDiscount(l)) : undefined,
+        })),
+        payments: payments
+          .map((r, i) => ({
+            method: r.method,
+            amount: round2(effective[i] ?? 0),
+            installments: r.method === 'CREDITO' ? r.installments : undefined,
+          }))
+          .filter((p) => p.amount > 0),
+        discount: saleDisc > 0 ? round2(saleDisc) : undefined,
         customerId: customerId || undefined,
       }),
     onSuccess: (created) => {
       setFeedback(`Venda #${created.number} concluída — ${brl(created.total)}`);
       setLastSale(created);
-      setCart([]);
-      setTendered('');
-      setCustomerId('');
+      resetSale();
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['cash'] });
       queryClient.invalidateQueries({ queryKey: ['sales'] });
@@ -133,7 +234,10 @@ export function PdvPage() {
 
   const canFinish =
     cart.length > 0 &&
-    (method !== 'DINHEIRO' || (Number(tendered) || 0) >= total) &&
+    total > EPS &&
+    paid + EPS >= total &&
+    !nonCashOverpay &&
+    !overDiscountLimit &&
     !sale.isPending;
 
   const printReceipt = useCallback(() => {
@@ -157,11 +261,7 @@ export function PdvPage() {
         e.preventDefault();
         printReceipt();
       } else if (e.key === 'Escape') {
-        if (cart.length > 0) {
-          setCart([]);
-          setTendered('');
-          setScanMiss(null);
-        }
+        if (cart.length > 0) resetSale();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -204,7 +304,7 @@ export function PdvPage() {
       <div className="page-header">
         <div>
           <p className="eyebrow">Frente de caixa</p>
-          <h1>PDV / Nova venda</h1>
+          <h1>Nova venda</h1>
         </div>
         <span className={`tag ${cash.data ? 'tag-success' : 'tag-warning'}`}>
           {cash.data ? 'Caixa aberto' : 'Caixa fechado'}
@@ -244,6 +344,13 @@ export function PdvPage() {
       {sale.error ? (
         <div className="error-message">
           {sale.error instanceof Error ? sale.error.message : 'Erro ao finalizar a venda'}
+        </div>
+      ) : null}
+      {overDiscountLimit ? (
+        <div className="error-message">
+          Desconto de {discountPct.toFixed(1)}% acima do limite de{' '}
+          {Number(discountLimit).toFixed(0)}% para o operador. Reduza o desconto ou peça
+          liberação a um gerente.
         </div>
       ) : null}
 
@@ -294,25 +401,69 @@ export function PdvPage() {
             <ul className="cart">
               {cart.map((l) => (
                 <li key={l.product.id} className="cart-line">
-                  <div className="cart-line-main">
-                    <strong>{l.product.name}</strong>
-                    <small>{brl(l.product.price)} / {l.product.unit}</small>
+                  <div className="cart-line-row">
+                    <div className="cart-line-main">
+                      <strong>{l.product.name}</strong>
+                      <small>{brl(l.product.price)} / {l.product.unit}</small>
+                    </div>
+                    <div className="qty-control">
+                      <button onClick={() => setQty(l.product.id, l.quantity - 1)}>−</button>
+                      <input
+                        value={l.quantity}
+                        onChange={(e) =>
+                          setQty(l.product.id, Math.max(0, Number(e.target.value) || 0))
+                        }
+                      />
+                      <button onClick={() => setQty(l.product.id, l.quantity + 1)}>+</button>
+                    </div>
+                    <strong className="cart-line-total">{brl(lineTotal(l))}</strong>
                   </div>
-                  <div className="qty-control">
-                    <button onClick={() => setQty(l.product.id, l.quantity - 1)}>−</button>
-                    <input
-                      value={l.quantity}
-                      onChange={(e) =>
-                        setQty(l.product.id, Math.max(0, Number(e.target.value) || 0))
-                      }
-                    />
-                    <button onClick={() => setQty(l.product.id, l.quantity + 1)}>+</button>
+                  <div className="cart-line-extra">
+                    <label>
+                      <span>Desconto</span>
+                      <input
+                        inputMode="text"
+                        value={l.discount}
+                        placeholder="R$ ou %"
+                        onChange={(e) => setLineDiscount(l.product.id, e.target.value)}
+                      />
+                    </label>
+                    {lineDiscount(l) > 0 ? (
+                      <small className="muted">
+                        −{brl(lineDiscount(l))} · bruto {brl(lineGross(l))}
+                      </small>
+                    ) : null}
                   </div>
-                  <strong className="cart-line-total">{brl(l.product.price * l.quantity)}</strong>
                 </li>
               ))}
             </ul>
           )}
+
+          <div className="cart-totals">
+            <div className="cart-totals-row">
+              <span>Subtotal</span>
+              <span>{brl(grossSubtotal)}</span>
+            </div>
+            {itemDiscountTotal > 0 ? (
+              <div className="cart-totals-row">
+                <span>Descontos nos itens</span>
+                <span>−{brl(itemDiscountTotal)}</span>
+              </div>
+            ) : null}
+            <label className="field">
+              <span>Desconto na venda</span>
+              <input
+                inputMode="text"
+                value={saleDiscount}
+                placeholder="R$ ou % (ex.: 5 ou 5%)"
+                onChange={(e) => setSaleDiscount(e.target.value)}
+              />
+              {saleDisc > 0 ? <small className="muted">−{brl(saleDisc)}</small> : null}
+              {discountLimit != null && operatorRole === 'OPERADOR' ? (
+                <small className="muted">Limite do operador: {Number(discountLimit).toFixed(0)}%</small>
+              ) : null}
+            </label>
+          </div>
 
           <div className="cart-summary">
             <span>Total</span>
@@ -340,30 +491,67 @@ export function PdvPage() {
             </div>
           </label>
 
-          <div className="pay-methods">
-            {METHODS.map((m) => (
-              <button
-                key={m}
-                className={`pill-button ${method === m ? 'active' : ''}`}
-                onClick={() => setMethod(m)}
-              >
-                {paymentLabel[m]}
-              </button>
+          <div className="pay-list">
+            {payments.map((p, i) => (
+              <div className="pay-row" key={i}>
+                <select
+                  value={p.method}
+                  onChange={(e) => setPay(i, { method: e.target.value as PaymentMethod })}
+                >
+                  {METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {paymentLabel[m]}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  inputMode="decimal"
+                  value={p.amount}
+                  placeholder={(effective[i] ?? 0).toFixed(2)}
+                  onChange={(e) => setPay(i, { amount: e.target.value })}
+                />
+                {p.method === 'CREDITO' ? (
+                  <select
+                    value={p.installments}
+                    onChange={(e) => setPay(i, { installments: Number(e.target.value) })}
+                  >
+                    {Array.from({ length: MAX_INSTALLMENTS }, (_, k) => k + 1).map((n) => (
+                      <option key={n} value={n}>
+                        {n}x
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {payments.length > 1 ? (
+                  <button
+                    type="button"
+                    className="mini-button danger"
+                    aria-label="Remover pagamento"
+                    onClick={() => removePay(i)}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
             ))}
           </div>
+          <button type="button" className="mini-button" onClick={addPay}>
+            + Dividir pagamento
+          </button>
 
-          {method === 'DINHEIRO' ? (
-            <label className="field">
-              <span>Valor recebido</span>
-              <input
-                inputMode="decimal"
-                value={tendered}
-                onChange={(e) => setTendered(e.target.value)}
-                placeholder={total.toFixed(2)}
-              />
-              {change > 0 ? <small>Troco: {brl(change)}</small> : null}
-            </label>
-          ) : null}
+          <div className="pay-status">
+            {falta > EPS ? (
+              <span className="text-warning">Falta {brl(falta)}</span>
+            ) : nonCashOverpay ? (
+              <span className="text-warning">
+                Pagamento eletrônico acima do total — não há troco
+              </span>
+            ) : troco > EPS ? (
+              <span>Troco {brl(troco)}</span>
+            ) : (
+              <span className="text-success">Pagamento completo</span>
+            )}
+          </div>
 
           <button
             className="primary-button large-button"

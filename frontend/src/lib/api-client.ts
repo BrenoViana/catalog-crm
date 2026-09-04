@@ -281,8 +281,40 @@ export interface Sale {
   operator?: { id: string; name: string };
   items?: SaleItem[];
   payments?: Array<{ id: string; method: PaymentMethod; amount: number; installments: number | null }>;
-  fiscalDocument?: { status: string; model: number; number: number } | null;
+  fiscalDocument?: FiscalDocument | null;
+  returns?: SaleReturn[];
   _count?: { items: number };
+}
+
+export type FiscalStatus =
+  | 'NAO_EMITIDA'
+  | 'PENDENTE'
+  | 'PROCESSANDO'
+  | 'AUTORIZADA'
+  | 'REJEITADA'
+  | 'CANCELADA'
+  | 'CONTINGENCIA';
+
+export interface FiscalDocument {
+  id: string;
+  saleId: string;
+  model: number;
+  series: number;
+  number: number;
+  status: FiscalStatus;
+  environment: string;
+  provider: string | null;
+  accessKey: string | null;
+  protocol: string | null;
+  qrCode: string | null;
+  xmlUrl: string | null;
+  danfeUrl: string | null;
+  rejectionReason: string | null;
+  attempts: number;
+  issuedAt: string | null;
+  canceledAt: string | null;
+  createdAt: string;
+  sale?: { id: string; number: number; total: number; status?: Sale['status'] };
 }
 export interface CreateSaleInput {
   items: Array<{ productId: string; quantity: number; unitPrice?: number; discount?: number }>;
@@ -291,12 +323,57 @@ export interface CreateSaleInput {
   discount?: number;
   note?: string;
 }
+
+export interface SaleReturnItem {
+  id: string;
+  saleItemId: string;
+  productId: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+export interface SaleReturn {
+  id: string;
+  number: number;
+  saleId: string;
+  reason: string;
+  refundMethod: PaymentMethod;
+  total: number;
+  cashSessionId: string | null;
+  createdAt: string;
+  items: SaleReturnItem[];
+  operator?: { id: string; name: string };
+}
+export interface CreateReturnInput {
+  items: Array<{ saleItemId: string; quantity: number }>;
+  reason: string;
+  refundMethod: PaymentMethod;
+}
+
 export const salesApi = {
   list: (status?: string) =>
     ApiClient.get<Sale[]>(`/sales${status ? `?status=${status}` : ''}`),
   get: (id: string) => ApiClient.get<Sale>(`/sales/${id}`),
   create: (data: CreateSaleInput) => ApiClient.post<Sale>('/sales', data),
   cancel: (id: string, reason: string) => ApiClient.post<Sale>(`/sales/${id}/cancel`, { reason }),
+  returns: (id: string) => ApiClient.get<SaleReturn[]>(`/sales/${id}/returns`),
+  createReturn: (id: string, data: CreateReturnInput) =>
+    ApiClient.post<SaleReturn>(`/sales/${id}/returns`, data),
+};
+
+// ---------------------------------------------------------------- Fiscal (NFC-e)
+export const fiscalApi = {
+  list: (status?: string) =>
+    ApiClient.get<FiscalDocument[]>(`/fiscal/documents${status ? `?status=${status}` : ''}`),
+  get: (id: string) => ApiClient.get<FiscalDocument>(`/fiscal/documents/${id}`),
+  emit: (id: string) => ApiClient.post<FiscalDocument>(`/fiscal/documents/${id}/emit`),
+  cancel: (id: string, reason: string) =>
+    ApiClient.post<FiscalDocument>(`/fiscal/documents/${id}/cancel`, { reason }),
+  processPending: () =>
+    ApiClient.post<{ picked: number; authorized: number; rejected: number }>(
+      '/fiscal/process-pending',
+    ),
 };
 
 // ---------------------------------------------------------------- Caixa
@@ -312,9 +389,36 @@ export interface CashSession {
   expectedAmount?: number;
   movements: Array<{ id: string; type: string; amount: number; reason: string | null; createdAt: string }>;
 }
+export interface CashReport {
+  kind: 'X' | 'Z';
+  generatedAt: string;
+  session: {
+    id: string;
+    status: 'ABERTA' | 'FECHADA';
+    openedAt: string;
+    closedAt: string | null;
+    openingAmount: number;
+    notes: string | null;
+  };
+  operator: { id: string; name: string } | null;
+  sales: { count: number; total: number; discountTotal: number; canceledCount: number };
+  byPaymentMethod: Array<{ method: PaymentMethod; count: number; amount: number }>;
+  cash: {
+    opening: number;
+    sales: number;
+    suprimentos: number;
+    sangrias: number;
+    expected: number;
+    counted: number | null;
+    difference: number | null;
+  };
+}
+
 export const cashApi = {
   current: () => ApiClient.get<CashSession | null>('/cash/current'),
   history: () => ApiClient.get<CashSession[]>('/cash/history'),
+  report: () => ApiClient.get<CashReport>('/cash/report'),
+  reportFor: (sessionId: string) => ApiClient.get<CashReport>(`/cash/report/${sessionId}`),
   open: (openingAmount: number, notes?: string) =>
     ApiClient.post<CashSession>('/cash/open', { openingAmount, notes }),
   movement: (type: 'SANGRIA' | 'SUPRIMENTO', amount: number, reason?: string) =>
@@ -346,9 +450,18 @@ export interface StoreSettings {
   nfceEnvironment: string;
   hasFiscalToken?: boolean;
   hasCsc?: boolean;
+  /** Teto de desconto (%) que um OPERADOR concede sem liberação de gerente. */
+  maxDiscountPercentOperator: number;
+}
+export interface StoreBranding {
+  tradeName: string | null;
+  legalName: string | null;
+  logoLightUrl: string | null;
+  logoDarkUrl: string | null;
 }
 export const storeSettingsApi = {
   get: () => ApiClient.get<StoreSettings | null>('/store-settings'),
+  branding: () => ApiClient.get<StoreBranding>('/store-settings/branding'),
   update: (data: Partial<StoreSettings>) => ApiClient.put<StoreSettings>('/store-settings', data),
 };
 

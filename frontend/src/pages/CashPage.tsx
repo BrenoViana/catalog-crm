@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
-import { cashApi } from '../lib/api-client';
-import { brl, dateTime } from '../lib/format';
+import { cashApi, type CashReport } from '../lib/api-client';
+import { brl, dateTime, paymentLabel } from '../lib/format';
 
 const movementLabel: Record<string, string> = {
   ABERTURA: 'Abertura',
@@ -11,6 +11,79 @@ const movementLabel: Record<string, string> = {
   SUPRIMENTO: 'Suprimento',
   FECHAMENTO: 'Fechamento',
 };
+
+function TurnReport({ report }: { report: CashReport }) {
+  const isZ = report.kind === 'Z';
+  return (
+    <div className="turn-report">
+      <div className="panel-header">
+        <h2>{isZ ? 'Fechamento (Z)' : 'Leitura de turno (X)'}</h2>
+        <span className="muted">{dateTime(report.generatedAt)}</span>
+      </div>
+
+      <div className="stats-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <article className="stat-card">
+          <span>Vendas no turno</span>
+          <strong>{report.sales.count}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Total vendido</span>
+          <strong>{brl(report.sales.total)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Descontos concedidos</span>
+          <strong>{brl(report.sales.discountTotal)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Vendas canceladas</span>
+          <strong>{report.sales.canceledCount}</strong>
+        </article>
+      </div>
+
+      <h3 className="turn-report-sub">Por forma de pagamento</h3>
+      {report.byPaymentMethod.length === 0 ? (
+        <p className="muted">Nenhum pagamento registrado.</p>
+      ) : (
+        <ul className="list-rows">
+          {report.byPaymentMethod.map((p) => (
+            <li key={p.method}>
+              <span>
+                {paymentLabel[p.method] ?? p.method} <small>× {p.count}</small>
+              </span>
+              <strong>{brl(p.amount)}</strong>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h3 className="turn-report-sub">Dinheiro na gaveta</h3>
+      <ul className="list-rows">
+        <li><span>Fundo de abertura</span><strong>{brl(report.cash.opening)}</strong></li>
+        <li><span>+ Vendas em dinheiro</span><strong>{brl(report.cash.sales)}</strong></li>
+        <li><span>+ Suprimentos</span><strong>{brl(report.cash.suprimentos)}</strong></li>
+        <li>
+          <span>− Sangrias</span>
+          <strong className="text-warning">{brl(report.cash.sangrias)}</strong>
+        </li>
+        <li>
+          <span>= Saldo esperado</span>
+          <strong>{brl(report.cash.expected)}</strong>
+        </li>
+        {isZ ? (
+          <>
+            <li><span>Contado na gaveta</span><strong>{brl(report.cash.counted)}</strong></li>
+            <li>
+              <span>Diferença</span>
+              <strong className={Number(report.cash.difference) === 0 ? '' : 'text-warning'}>
+                {brl(report.cash.difference)}
+              </strong>
+            </li>
+          </>
+        ) : null}
+      </ul>
+    </div>
+  );
+}
 
 export function CashPage() {
   const queryClient = useQueryClient();
@@ -49,6 +122,17 @@ export function CashPage() {
 
   const session = current.data;
 
+  const report = useQuery({
+    queryKey: ['cash', 'report'],
+    queryFn: cashApi.report,
+    enabled: !!session,
+  });
+  const closedReport = useQuery({
+    queryKey: ['cash', 'report', close.data?.id],
+    queryFn: () => cashApi.reportFor(close.data!.id),
+    enabled: !!close.data?.id,
+  });
+
   return (
     <Layout>
       <div className="page-header">
@@ -60,6 +144,12 @@ export function CashPage() {
           {session ? 'Aberto' : 'Fechado'}
         </span>
       </div>
+
+      {!session && closedReport.data ? (
+        <section className="panel" style={{ marginBottom: 20 }}>
+          <TurnReport report={closedReport.data} />
+        </section>
+      ) : null}
 
       {!session ? (
         <section className="panel" style={{ maxWidth: 420 }}>
@@ -80,6 +170,7 @@ export function CashPage() {
           </button>
         </section>
       ) : (
+        <>
         <div className="split-layout">
           <section className="panel">
             <div className="panel-header">
@@ -170,6 +261,13 @@ export function CashPage() {
             ) : null}
           </section>
         </div>
+
+        {report.data ? (
+          <section className="panel" style={{ marginTop: 20 }}>
+            <TurnReport report={report.data} />
+          </section>
+        ) : null}
+        </>
       )}
     </Layout>
   );

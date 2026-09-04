@@ -8,16 +8,22 @@ interface Props {
   customerName?: string;
 }
 
+/** Agrupa a chave de acesso de 44 dígitos em blocos de 4, como no DANFE. */
+const groupKey = (key: string) => key.replace(/(.{4})/g, '$1 ').trim();
+
 /**
  * Recibo de balcao em formato bobina (80mm). Fica fora da tela no fluxo normal
- * e so aparece na impressao (ver regras @media print em styles.css). Enquanto a
- * NFC-e nao e emitida (Fase 3), sai marcado como sem valor fiscal.
+ * e so aparece na impressao (ver regras @media print em styles.css). Quando a
+ * NFC-e da venda esta autorizada, o recibo sai com a chave de acesso; caso
+ * contrario, sai marcado como sem valor fiscal.
  */
 export function SaleReceipt({ sale, store, operatorName, customerName }: Props) {
   const items = sale.items ?? [];
   const payments = sale.payments ?? [];
   const paid = payments.reduce((acc, p) => acc + p.amount, 0);
   const troco = Math.max(0, paid - sale.total);
+  const fiscal = sale.fiscalDocument;
+  const fiscalAuthorized = fiscal?.status === 'AUTORIZADA' && !!fiscal.accessKey;
 
   const name = store?.tradeName || store?.legalName || 'Minha Loja';
   const addressLine = store
@@ -43,10 +49,12 @@ export function SaleReceipt({ sale, store, operatorName, customerName }: Props) 
 
       <div className="receipt-rule" />
       <div className="receipt-center receipt-strong">
-        RECIBO DE VENDA #{sale.number}
+        {fiscalAuthorized ? `NFC-e #${sale.number}` : `RECIBO DE VENDA #${sale.number}`}
       </div>
       <div className="receipt-center receipt-muted">
-        Documento sem valor fiscal
+        {fiscalAuthorized
+          ? 'Documento Auxiliar da NFC-e'
+          : 'Documento sem valor fiscal'}
       </div>
 
       <div className="receipt-rule" />
@@ -114,6 +122,31 @@ export function SaleReceipt({ sale, store, operatorName, customerName }: Props) 
           <span>Troco</span>
           <span>{brl(troco)}</span>
         </div>
+      ) : null}
+
+      {fiscalAuthorized ? (
+        <>
+          <div className="receipt-rule" />
+          <div className="receipt-center receipt-muted">
+            Consulte pela chave de acesso em
+          </div>
+          <div className="receipt-center receipt-muted">
+            www.nfce.fazenda.gov.br
+          </div>
+          <div className="receipt-center receipt-key">
+            {groupKey(fiscal!.accessKey as string)}
+          </div>
+          {fiscal?.protocol ? (
+            <div className="receipt-center receipt-muted">
+              Protocolo {fiscal.protocol}
+            </div>
+          ) : null}
+          {fiscal?.environment !== 'producao' ? (
+            <div className="receipt-center receipt-muted">
+              AMBIENTE DE HOMOLOGAÇÃO — SEM VALOR FISCAL
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <div className="receipt-rule" />

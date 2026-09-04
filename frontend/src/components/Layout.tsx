@@ -1,10 +1,23 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { storeSettingsApi } from '../lib/api-client';
 import { atLeast, type Role } from '../lib/roles';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
+
+const SIDEBAR_KEY = 'crm-sidebar';
+
+function initialSidebarOpen(): boolean {
+  try {
+    const stored = localStorage.getItem(SIDEBAR_KEY);
+    if (stored === 'open') return true;
+    if (stored === 'closed') return false;
+  } catch {
+    /* storage indisponível */
+  }
+  return typeof window === 'undefined' || window.innerWidth > 900;
+}
 
 type NavLeaf = { to: string; label: string; min?: Role };
 type NavGroup = { group: string; items: NavLeaf[] };
@@ -53,6 +66,19 @@ export function Layout({ children }: { children: ReactNode }) {
   const theme = useThemeStore((state) => state.theme);
   const toggleTheme = useThemeStore((state) => state.toggle);
 
+  const [sidebarOpen, setSidebarOpen] = useState(initialSidebarOpen);
+  const setSidebar = (open: boolean) => {
+    setSidebarOpen(open);
+    try {
+      localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed');
+    } catch {
+      /* storage indisponível */
+    }
+  };
+  const closeOnMobile = () => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 900) setSidebar(false);
+  };
+
   const store = useQuery({
     queryKey: ['store-settings'],
     queryFn: storeSettingsApi.get,
@@ -76,7 +102,21 @@ export function Layout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarOpen ? '' : 'nav-collapsed'}`}>
+      <button
+        type="button"
+        className="sidebar-toggle"
+        onClick={() => setSidebar(!sidebarOpen)}
+        aria-label={sidebarOpen ? 'Recolher menu' : 'Abrir menu'}
+        aria-expanded={sidebarOpen}
+      >
+        <span aria-hidden="true">☰</span>
+      </button>
+      <div
+        className="sidebar-backdrop"
+        onClick={() => setSidebar(false)}
+        aria-hidden="true"
+      />
       <aside className="sidebar">
         <div className="brand-box">
           {logo ? (
@@ -92,7 +132,7 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        <nav className="nav-menu">
+        <nav className="nav-menu" onClick={closeOnMobile}>
           {entries.map((entry) =>
             'group' in entry ? (
               <div key={entry.group} className="nav-group">

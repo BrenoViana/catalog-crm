@@ -156,6 +156,14 @@ button {
   margin-bottom: 20px;
 }
 
+.auth-logo {
+  max-width: 240px;
+  max-height: 88px;
+  object-fit: contain;
+  display: block;
+  margin: 4px auto 8px;
+}
+
 .brand-mark {
   width: 48px;
   height: 48px;
@@ -258,20 +266,57 @@ h2 {
 
 .sidebar {
   width: 260px;
-  min-height: 100vh;
+  flex-shrink: 0;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
   background: var(--surface);
   border-right: 1px solid var(--border);
   padding: 22px 16px;
   display: flex;
   flex-direction: column;
   gap: 22px;
+  /* A sidebar fica presa na viewport sozinha; se marca + menu + rodapé
+     passarem da altura, tudo rola junto aqui dentro. */
+  overflow-y: auto;
 }
+
+/* Botão sanduíche — fixo no canto, sempre acessível. */
+.sidebar-toggle {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 60;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-size: 1.05rem;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.sidebar-toggle:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.sidebar-backdrop { display: none; }
+
+/* Menu recolhido: some com a sidebar e o conteúdo ocupa tudo, deixando
+   um respiro no topo para o botão sanduíche não cobrir o cabeçalho. */
+.nav-collapsed .sidebar { display: none; }
+.nav-collapsed .main-content { padding-top: 64px; }
 
 .brand-box {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
+  padding: 8px 10px 8px 50px;
 }
 
 .brand-box strong,
@@ -287,6 +332,9 @@ h2 {
 .nav-menu {
   display: grid;
   gap: 8px;
+  align-content: start;
+  margin: 0 -4px;
+  padding: 0 4px;
 }
 
 .nav-item,
@@ -331,9 +379,12 @@ h2 {
 }
 
 .sidebar-footer {
-  margin-top: auto;
+  /* Logo abaixo do menu (acompanha o restante do menu), não colado no rodapé
+     da viewport. A sidebar inteira é que fica fixa. */
   display: grid;
   gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .theme-toggle {
@@ -541,15 +592,33 @@ small {
 }
 
 @media (max-width: 900px) {
-  .app-shell {
-    flex-direction: column;
-  }
-
+  /* Sidebar vira gaveta sobreposta, controlada pelo botão sanduíche. */
   .sidebar {
-    width: 100%;
-    min-height: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100vh;
+    width: min(84vw, 300px);
+    z-index: 55;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+  .app-shell:not(.nav-collapsed) .sidebar {
+    transform: translateX(0);
+  }
+  .nav-collapsed .sidebar {
+    display: flex;
+  }
+  .app-shell:not(.nav-collapsed) .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .main-content {
+    padding-top: 64px;
   }
 
   .stats-grid,
@@ -557,6 +626,10 @@ small {
   .settings-grid {
     grid-template-columns: 1fr;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
 }
 
 .error-message {
@@ -681,15 +754,42 @@ small {
 
 .cart { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
 .cart-line {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.cart-line-row {
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
 }
 .cart-line-main strong { display: block; }
 .cart-line-total { min-width: 90px; text-align: right; }
+.cart-line-extra { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cart-line-extra label { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); }
+.cart-line-extra input {
+  width: 84px;
+  text-align: right;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: var(--text-strong);
+}
+.cart-line-extra small { font-size: 0.76rem; }
+
+.cart-totals { display: grid; gap: 6px; padding: 6px 0 0; }
+.cart-totals-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: var(--text-soft);
+}
+.cart-totals .field { margin: 6px 0 0; }
 
 .qty-control { display: flex; align-items: center; gap: 6px; }
 .qty-control button {
@@ -719,6 +819,23 @@ small {
   margin-bottom: 12px;
 }
 .cart-summary strong { font-size: 1.4rem; }
+
+.pay-list { display: grid; gap: 8px; margin-bottom: 8px; }
+.pay-row { display: flex; align-items: center; gap: 8px; }
+.pay-row select,
+.pay-row input {
+  min-width: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 11px;
+  color: var(--text-strong);
+}
+.pay-row > select:first-child { flex: 0 0 8.5rem; }
+.pay-row > input { flex: 1; text-align: right; }
+.pay-row > select:nth-child(3) { flex: 0 0 4.5rem; }
+.pay-status { margin: 10px 0 12px; font-weight: 600; font-size: 0.9rem; }
+.text-success { color: var(--success-text); }
 
 .pay-methods { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .pill-button {
@@ -960,6 +1077,58 @@ a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-
 .receipt-items td { vertical-align: top; padding: 2px 0; }
 .receipt-items-desc { padding-right: 8px; }
 .receipt-items-total { text-align: right; white-space: nowrap; }
+.receipt-key {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  word-break: break-all;
+  margin: 4px 0;
+}
+
+/* Bloco de status da NFC-e no detalhe da venda */
+.fiscal-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+}
+.fiscal-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+.fiscal-key {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  word-break: break-all;
+  margin: 0;
+}
+
+/* Leitura X / fechamento Z do turno de caixa */
+.turn-report { display: grid; gap: 4px; }
+.turn-report .stats-grid { margin-top: 4px; }
+.turn-report-sub {
+  font-size: 0.9rem;
+  margin: 18px 0 8px;
+  color: var(--text-soft);
+}
+
+/* Devolução parcial de venda */
+.returns-box { margin-top: 8px; }
+.return-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 10px; }
+.return-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.return-row small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+.return-row-refund { min-width: 88px; text-align: right; }
 
 @media print {
   @page { size: 72mm auto; margin: 3mm; }
