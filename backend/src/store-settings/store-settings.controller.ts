@@ -3,6 +3,7 @@ import { StoreSettingsService } from './store-settings.service';
 import { UpdateStoreSettingsDto } from './dto/update-store-settings.dto';
 import { Role } from '@prisma/client';
 import { Roles } from '../common/roles.decorator';
+import { Public } from '../common/public.decorator';
 
 @Controller('store-settings')
 export class StoreSettingsController {
@@ -11,6 +12,13 @@ export class StoreSettingsController {
   @Get()
   get() {
     return this.storeSettingsService.get();
+  }
+
+  /** Marca da loja (nome + logos) — publico, para a tela de login. */
+  @Public()
+  @Get('branding')
+  branding() {
+    return this.storeSettingsService.branding();
   }
 
   @Roles(Role.ADMIN)

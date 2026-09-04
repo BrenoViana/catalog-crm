@@ -1,21 +1,30 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, SaleStatus } from '@prisma/client';
+import { Prisma, Role, SaleStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FiscalService } from '../fiscal/fiscal.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { CancelSaleDto } from './dto/cancel-sale.dto';
+import { CreateReturnDto } from './dto/create-return.dto';
 
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
 
-// Chave de advisory lock (transacional) que serializa a numeracao de vendas.
+// Chaves de advisory lock (transacional) que serializam numeracoes concorrentes.
 const SALE_NUMBER_LOCK = 727274;
+const RETURN_NUMBER_LOCK = 727275;
 
 @Injectable()
 export class SalesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly log = new Logger(SalesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fiscal: FiscalService,
+  ) {}
 
   list(params: { status?: string; take?: number }) {
     const status =
@@ -46,13 +55,24 @@ export class SalesService {
         items: { include: { product: true } },
         payments: true,
         fiscalDocument: true,
+        returns: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            items: true,
+            operator: { select: { id: true, name: true } },
+          },
+        },
       },
     });
     if (!sale) throw new NotFoundException('Venda nao encontrada.');
     return sale;
   }
 
-  async create(dto: CreateSaleDto, operatorId: string) {
+  async create(
+    dto: CreateSaleDto,
+    operatorId: string,
+    operatorRole: Role = Role.OPERADOR,
+  ) {
     if (!operatorId) throw new BadRequestException('Operador nao identificado.');
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
@@ -88,6 +108,26 @@ export class SalesService {
     const total = subtotal.minus(saleDiscount);
     if (total.lt(0)) throw new BadRequestException('Desconto maior que o total.');
 
+    // Politica de desconto: um OPERADOR nao pode ultrapassar o teto (em %) da
+    // loja no desconto total da venda (itens + venda). GERENTE/ADMIN sem teto.
+    if (operatorRole === Role.OPERADOR) {
+      const gross = lines.reduce((acc, l) => acc.plus(l.unitPrice.mul(l.qty)), D(0));
+      if (gross.gt(0)) {
+        const settings = await this.prisma.storeSettings.findFirst({
+          select: { maxDiscountPercentOperator: true },
+        });
+        const limit = D(settings?.maxDiscountPercentOperator ?? 100);
+        const pct = gross.minus(total).div(gross).mul(100);
+        if (pct.gt(limit)) {
+          throw new BadRequestException(
+            `Desconto de ${pct.toFixed(1)}% excede o limite de ${limit.toFixed(
+              0,
+            )}% do operador. Peca liberacao a um gerente.`,
+          );
+        }
+      }
+    }
+
     const paid = dto.payments.reduce((acc, p) => acc.plus(D(p.amount)), D(0));
     if (paid.lt(total)) {
       throw new BadRequestException(
@@ -95,11 +135,22 @@ export class SalesService {
       );
     }
 
+    // Troco so existe em dinheiro: a soma dos pagamentos eletronicos nao pode
+    // ultrapassar o total da venda.
+    const nonCashPaid = dto.payments
+      .filter((p) => p.method !== 'DINHEIRO')
+      .reduce((acc, p) => acc.plus(D(p.amount)), D(0));
+    if (nonCashPaid.gt(total)) {
+      throw new BadRequestException(
+        `Pagamento eletronico (${nonCashPaid}) excede o total da venda (${total}) — nao ha troco.`,
+      );
+    }
+
     const cashPaid = dto.payments
       .filter((p) => p.method === 'DINHEIRO')
       .reduce((acc, p) => acc.plus(D(p.amount)), D(0));
 
-    return this.prisma.$transaction(async (tx) => {
+    const sale = await this.prisma.$transaction(async (tx) => {
       // Serializa a alocacao de numero de venda entre transacoes concorrentes.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SALE_NUMBER_LOCK})`;
 
@@ -153,7 +204,8 @@ export class SalesService {
             create: dto.payments.map((p) => ({
               method: p.method,
               amount: D(p.amount),
-              installments: p.installments ?? null,
+              // Parcelamento so faz sentido no credito.
+              installments: p.method === 'CREDITO' ? p.installments ?? 1 : null,
             })),
           },
         },
@@ -184,7 +236,9 @@ export class SalesService {
         });
       }
 
-      // Documento fiscal fica pendente de emissao (Fase 3).
+      // Cria o documento fiscal PENDENTE dentro da transacao (numeracao da
+      // NFC-e). A emissao junto ao provedor acontece fora da transacao, logo
+      // apos o commit, para nao segurar o PDV.
       const store = await tx.storeSettings.findFirst({
         select: { id: true, nfceSeries: true, nfceEnvironment: true },
       });
@@ -208,6 +262,18 @@ export class SalesService {
 
       return sale;
     });
+
+    // Emissao fiscal assincrona: o resultado (AUTORIZADA/REJEITADA) fica no
+    // proprio documento; uma falha aqui nunca invalida a venda ja concluida.
+    void this.fiscal.emitForSale(sale.id).catch((err) => {
+      this.log.error(
+        `Falha ao disparar emissao fiscal da venda ${sale.id}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    });
+
+    return sale;
   }
 
   async cancel(id: string, dto: CancelSaleDto, operatorId: string) {
@@ -237,7 +303,7 @@ export class SalesService {
       .reduce((acc, p) => acc.plus(D(p.amount)), D(0));
     const cashToReverse = cashBooked.gt(sale.total) ? D(sale.total) : cashBooked;
 
-    return this.prisma.$transaction(async (tx) => {
+    const canceled = await this.prisma.$transaction(async (tx) => {
       for (const item of sale.items) {
         await tx.stockItem.updateMany({
           where: { productId: item.productId },
@@ -270,13 +336,6 @@ export class SalesService {
         });
       }
 
-      if (sale.fiscalDocument) {
-        await tx.fiscalDocument.update({
-          where: { saleId: sale.id },
-          data: { status: 'CANCELADA', canceledAt: new Date() },
-        });
-      }
-
       return tx.sale.update({
         where: { id },
         data: {
@@ -285,6 +344,162 @@ export class SalesService {
           cancelReason: dto.reason,
         },
       });
+    });
+
+    // Cancela a NFC-e junto ao provedor (se ja autorizada) ou apenas marca o
+    // documento; roda apos o commit para nao misturar chamada externa com a tx.
+    if (sale.fiscalDocument) {
+      await this.fiscal
+        .cancelForSale(sale.id, `Cancelamento da venda #${sale.number}: ${dto.reason}`)
+        .catch((err) => {
+          this.log.error(
+            `Falha ao cancelar documento fiscal da venda ${sale.id}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        });
+    }
+
+    return canceled;
+  }
+
+  listReturns(saleId: string) {
+    return this.prisma.saleReturn.findMany({
+      where: { saleId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        items: true,
+        operator: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Devolucao parcial (ou total) de itens de uma venda concluida. Nao mexe na
+   * venda original: repoe estoque, registra o SaleReturn e, se o reembolso for
+   * em dinheiro e houver caixa aberto do operador, langa uma sangria.
+   */
+  async createReturn(saleId: string, dto: CreateReturnDto, operatorId: string) {
+    const sale = await this.prisma.sale.findUnique({
+      where: { id: saleId },
+      include: { items: true, returns: { include: { items: true } } },
+    });
+    if (!sale) throw new NotFoundException('Venda nao encontrada.');
+    if (sale.status !== 'CONCLUIDA') {
+      throw new BadRequestException(
+        'So e possivel devolver itens de vendas concluidas.',
+      );
+    }
+
+    const itemById = new Map(sale.items.map((i) => [i.id, i]));
+    const returnedByItem = new Map<string, Prisma.Decimal>();
+    for (const r of sale.returns) {
+      for (const ri of r.items) {
+        returnedByItem.set(
+          ri.saleItemId,
+          (returnedByItem.get(ri.saleItemId) ?? D(0)).plus(ri.quantity),
+        );
+      }
+    }
+
+    // Consolida quantidades repetidas do mesmo item na requisicao.
+    const requested = new Map<string, Prisma.Decimal>();
+    for (const it of dto.items) {
+      requested.set(
+        it.saleItemId,
+        (requested.get(it.saleItemId) ?? D(0)).plus(D(it.quantity)),
+      );
+    }
+
+    const lines = [...requested.entries()].map(([saleItemId, qty]) => {
+      const original = itemById.get(saleItemId);
+      if (!original) {
+        throw new BadRequestException('Item informado nao pertence a esta venda.');
+      }
+      const remaining = D(original.quantity).minus(
+        returnedByItem.get(saleItemId) ?? D(0),
+      );
+      if (qty.gt(remaining)) {
+        throw new BadRequestException(
+          `Quantidade a devolver de "${original.description}" (${qty}) maior que o disponivel (${remaining}).`,
+        );
+      }
+      // Reembolso proporcional ao que foi efetivamente cobrado (liquido de desconto).
+      const total = D(original.total).div(original.quantity).mul(qty);
+      return { original, qty, unitPrice: D(original.unitPrice), total };
+    });
+
+    const total = lines.reduce((acc, l) => acc.plus(l.total), D(0));
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RETURN_NUMBER_LOCK})`;
+
+      const openSession = await tx.cashSession.findFirst({
+        where: { operatorId, status: 'ABERTA' },
+        select: { id: true },
+      });
+      const last = await tx.saleReturn.findFirst({
+        orderBy: { number: 'desc' },
+        select: { number: true },
+      });
+      const number = (last?.number ?? 0) + 1;
+
+      for (const l of lines) {
+        await tx.stockItem.updateMany({
+          where: { productId: l.original.productId },
+          data: { quantity: { increment: l.qty } },
+        });
+        await tx.stockMovement.create({
+          data: {
+            productId: l.original.productId,
+            type: 'DEVOLUCAO',
+            quantity: l.qty,
+            reason: `Devolucao #${number} da venda #${sale.number}`,
+            userId: operatorId,
+            saleId: sale.id,
+          },
+        });
+      }
+
+      const saleReturn = await tx.saleReturn.create({
+        data: {
+          number,
+          saleId: sale.id,
+          operatorId,
+          cashSessionId: openSession?.id ?? null,
+          reason: dto.reason,
+          refundMethod: dto.refundMethod,
+          total,
+          items: {
+            create: lines.map((l) => ({
+              saleItemId: l.original.id,
+              productId: l.original.productId,
+              description: l.original.description,
+              quantity: l.qty,
+              unitPrice: l.unitPrice,
+              total: l.total,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      if (openSession && dto.refundMethod === 'DINHEIRO' && total.gt(0)) {
+        await tx.cashMovement.create({
+          data: {
+            cashSessionId: openSession.id,
+            type: 'SANGRIA',
+            amount: total,
+            reason: `Devolucao #${number} da venda #${sale.number}`,
+            userId: operatorId,
+            saleId: sale.id,
+          },
+        });
+      }
+
+      // NFC-e: a devolucao parcial exige NF-e de devolucao (modelo 55), fora do
+      // escopo do provedor atual. O documento da venda original nao muda.
+      return saleReturn;
     });
   }
 }

@@ -101,6 +101,93 @@ export class CashService {
     });
   }
 
+  /**
+   * Resumo de turno. Sem sessionId, usa o turno aberto do operador (leitura X);
+   * com sessionId, um turno especifico ja fechado (relatorio Z / reimpressao).
+   */
+  async report(operatorId: string, sessionId?: string) {
+    const session = await this.prisma.cashSession.findFirst({
+      where: sessionId
+        ? { id: sessionId, operatorId }
+        : { operatorId, status: 'ABERTA' },
+      include: {
+        movements: { orderBy: { createdAt: 'asc' } },
+        operator: { select: { id: true, name: true } },
+      },
+    });
+    if (!session) {
+      throw new NotFoundException(
+        sessionId ? 'Turno nao encontrado.' : 'Nenhum caixa aberto.',
+      );
+    }
+
+    const scope = {
+      sale: { cashSessionId: session.id, status: 'CONCLUIDA' as const },
+    };
+    const [sales, canceledCount, itemDiscount, byMethod] = await Promise.all([
+      this.prisma.sale.aggregate({
+        _count: true,
+        _sum: { subtotal: true, discount: true, total: true },
+        where: { cashSessionId: session.id, status: 'CONCLUIDA' },
+      }),
+      this.prisma.sale.count({
+        where: { cashSessionId: session.id, status: 'CANCELADA' },
+      }),
+      this.prisma.saleItem.aggregate({ _sum: { discount: true }, where: scope }),
+      this.prisma.payment.groupBy({
+        by: ['method'],
+        _count: true,
+        _sum: { amount: true },
+        where: scope,
+      }),
+    ]);
+
+    const sumByType = (t: string) =>
+      session.movements
+        .filter((m) => m.type === t)
+        .reduce((acc, m) => acc.plus(m.amount), D(0));
+
+    const discountTotal = D(sales._sum.discount ?? 0).plus(
+      itemDiscount._sum.discount ?? 0,
+    );
+
+    return {
+      kind: session.status === 'ABERTA' ? 'X' : 'Z',
+      generatedAt: new Date(),
+      session: {
+        id: session.id,
+        status: session.status,
+        openedAt: session.openedAt,
+        closedAt: session.closedAt,
+        openingAmount: session.openingAmount,
+        notes: session.notes,
+      },
+      operator: session.operator,
+      sales: {
+        count: sales._count,
+        total: sales._sum.total ?? D(0),
+        discountTotal,
+        canceledCount,
+      },
+      byPaymentMethod: byMethod
+        .map((m) => ({
+          method: m.method,
+          count: m._count,
+          amount: m._sum.amount ?? D(0),
+        }))
+        .sort((a, b) => Number(b.amount) - Number(a.amount)),
+      cash: {
+        opening: session.openingAmount,
+        sales: sumByType('VENDA'),
+        suprimentos: sumByType('SUPRIMENTO'),
+        sangrias: sumByType('SANGRIA'),
+        expected: this.expected(session),
+        counted: session.closingCountedAmount,
+        difference: session.difference,
+      },
+    };
+  }
+
   /** Saldo esperado em dinheiro: abertura + vendas em dinheiro + suprimentos - sangrias. */
   private expected(session: {
     openingAmount: Prisma.Decimal;

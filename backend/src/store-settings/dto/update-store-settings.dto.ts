@@ -1,4 +1,14 @@
-import { IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 /**
  * Logo aceito como URL https:// ou data URI de imagem embutida.
@@ -51,4 +61,11 @@ export class UpdateStoreSettingsDto {
   @IsOptional() @IsString() nfceCsc?: string;
   @IsOptional() @IsString() fiscalProvider?: string;
   @IsOptional() @IsString() fiscalProviderToken?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  maxDiscountPercentOperator?: number;
 }

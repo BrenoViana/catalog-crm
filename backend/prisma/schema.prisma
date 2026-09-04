@@ -47,6 +47,7 @@ enum PaymentMethod {
 enum FiscalStatus {
   NAO_EMITIDA
   PENDENTE
+  PROCESSANDO
   AUTORIZADA
   REJEITADA
   CANCELADA
@@ -89,6 +90,7 @@ model User {
   cashSessions   CashSession[]
   stockMovements StockMovement[]
   cashMovements  CashMovement[]
+  saleReturns    SaleReturn[]
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +148,7 @@ model Product {
   stock          StockItem?
   saleItems      SaleItem[]
   stockMovements StockMovement[]
+  returnItems    SaleReturnItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -224,6 +227,7 @@ model Sale {
   fiscalDocument FiscalDocument?
   stockMovements StockMovement[]
   cashMovements  CashMovement[]
+  returns        SaleReturn[]
 
   createdAt    DateTime  @default(now())
   completedAt  DateTime?
@@ -246,6 +250,8 @@ model SaleItem {
   discount    Decimal @default(0) @db.Decimal(12, 2)
   total       Decimal @db.Decimal(12, 2)
 
+  returnItems SaleReturnItem[]
+
   @@index([saleId])
 }
 
@@ -261,6 +267,44 @@ model Payment {
   @@index([saleId])
 }
 
+/// Devolucao (total ou parcial) de itens de uma venda ja concluida. Nao altera
+/// a venda original — repoe estoque e, se em dinheiro, sai do caixa como sangria.
+model SaleReturn {
+  id            String       @id @default(uuid())
+  number        Int          @unique
+  saleId        String
+  sale          Sale         @relation(fields: [saleId], references: [id])
+  operatorId    String
+  operator      User         @relation(fields: [operatorId], references: [id])
+  cashSessionId String?
+  cashSession   CashSession? @relation(fields: [cashSessionId], references: [id])
+  reason        String
+  refundMethod  PaymentMethod
+  total         Decimal      @db.Decimal(12, 2)
+
+  items     SaleReturnItem[]
+  createdAt DateTime         @default(now())
+
+  @@index([saleId])
+}
+
+model SaleReturnItem {
+  id          String     @id @default(uuid())
+  returnId    String
+  saleReturn  SaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  saleItemId  String
+  saleItem    SaleItem   @relation(fields: [saleItemId], references: [id])
+  productId   String
+  product     Product    @relation(fields: [productId], references: [id])
+  description String
+  quantity    Decimal    @db.Decimal(12, 3)
+  unitPrice   Decimal    @db.Decimal(12, 2)
+  total       Decimal    @db.Decimal(12, 2)
+
+  @@index([returnId])
+  @@index([saleItemId])
+}
+
 // ---------------------------------------------------------------------------
 // Fiscal (NFC-e modelo 65)
 // ---------------------------------------------------------------------------
@@ -274,14 +318,20 @@ model FiscalDocument {
   number          Int
   status          FiscalStatus @default(PENDENTE)
   environment     String       @default("homologacao")
+  provider        String?
   accessKey       String?      @unique
   protocol        String?
+  qrCode          String?
   xmlUrl          String?
   danfeUrl        String?
   rejectionReason String?
+  attempts        Int          @default(0)
+  lastAttemptAt   DateTime?
   issuedAt        DateTime?
   canceledAt      DateTime?
   createdAt       DateTime     @default(now())
+
+  @@index([status])
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +353,7 @@ model CashSession {
 
   sales     Sale[]
   movements CashMovement[]
+  returns   SaleReturn[]
 
   @@index([status])
 }
@@ -358,6 +409,10 @@ model StoreSettings {
   nfceCsc             String?
   fiscalProvider      String? // ex.: "focusnfe", "plugnotas"
   fiscalProviderToken String?
+
+  // Politica de desconto: teto (em %) que um OPERADOR pode conceder numa venda
+  // sem liberacao de gerente. GERENTE e ADMIN nao tem teto.
+  maxDiscountPercentOperator Decimal @default(10) @db.Decimal(5, 2)
 
   updatedAt DateTime @updatedAt
 }

@@ -31,6 +31,26 @@ export class StoreSettingsService {
     };
   }
 
+  /** Subconjunto publico: apenas a identidade visual, para a tela de login. */
+  async branding() {
+    const s = await this.prisma.storeSettings.findFirst({
+      select: {
+        tradeName: true,
+        legalName: true,
+        logoLightUrl: true,
+        logoDarkUrl: true,
+      },
+    });
+    return (
+      s ?? {
+        tradeName: null,
+        legalName: null,
+        logoLightUrl: null,
+        logoDarkUrl: null,
+      }
+    );
+  }
+
   async update(dto: UpdateStoreSettingsDto) {
     const data = this.normalize(dto);
     const current = await this.prisma.storeSettings.findFirst();
