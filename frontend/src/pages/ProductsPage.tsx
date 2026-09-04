@@ -15,6 +15,7 @@ interface ProductForm {
   barcode: string;
   description: string;
   unit: string;
+  pricingMode: 'UNIT' | 'WEIGHT';
   price: string;
   cost: string;
   categoryId: string;
@@ -30,6 +31,7 @@ const blank: ProductForm = {
   barcode: '',
   description: '',
   unit: 'UN',
+  pricingMode: 'UNIT',
   price: '',
   cost: '',
   categoryId: '',
@@ -46,6 +48,7 @@ function fromProduct(p: Product): ProductForm {
     barcode: p.barcode ?? '',
     description: p.description ?? '',
     unit: p.unit,
+    pricingMode: p.pricingMode ?? 'UNIT',
     price: String(p.price ?? ''),
     cost: p.cost == null ? '' : String(p.cost),
     categoryId: p.categoryId ?? '',
@@ -91,7 +94,8 @@ export function ProductsPage() {
         name: f.name.trim(),
         barcode: f.barcode.trim() || undefined,
         description: f.description.trim() || undefined,
-        unit: f.unit.trim() || 'UN',
+        unit: f.unit.trim() || (f.pricingMode === 'WEIGHT' ? 'KG' : 'UN'),
+        pricingMode: f.pricingMode,
         price: toNumber(f.price),
         cost: f.cost ? toNumber(f.cost) : undefined,
         categoryId: f.categoryId || undefined,
@@ -300,6 +304,22 @@ export function ProductsPage() {
             <label className="field">
               <span>Unidade</span>
               <input value={form.unit} onChange={(e) => set('unit', e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Forma de venda</span>
+              <select
+                value={form.pricingMode}
+                onChange={(e) => set('pricingMode', e.target.value as 'UNIT' | 'WEIGHT')}
+              >
+                <option value="UNIT">Por unidade</option>
+                <option value="WEIGHT">Por peso (balança)</option>
+              </select>
+              {form.pricingMode === 'WEIGHT' ? (
+                <small className="muted">
+                  Preço por kg. A quantidade vem da etiqueta da balança (EAN-13 com prefixo 2);
+                  cadastre o código do item de 6 dígitos no SKU ou no código de barras.
+                </small>
+              ) : null}
             </label>
 
             <label className="field">

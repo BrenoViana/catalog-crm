@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -28,6 +29,11 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   unit?: string;
+
+  /** UNIT = por unidade; WEIGHT = por peso (preco por kg, quantidade da balanca). */
+  @IsOptional()
+  @IsIn(['UNIT', 'WEIGHT'])
+  pricingMode?: 'UNIT' | 'WEIGHT';
 
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)

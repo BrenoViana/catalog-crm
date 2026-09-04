@@ -16,6 +16,9 @@ import {
   type Sale,
 } from '../lib/api-client';
 import { brl, paymentLabel, resolveDiscount, round2, toNumber } from '../lib/format';
+import { parseScaleBarcode } from '../lib/barcode';
+import { mailtoUrl, receiptText, whatsappUrl } from '../lib/receipt-share';
+import { getTerminal, setTerminal } from '../lib/terminal';
 import { useAuthStore } from '../store/authStore';
 
 interface CartLine {
@@ -71,6 +74,7 @@ export function PdvPage() {
   const queryClient = useQueryClient();
   const operatorName = useAuthStore((s) => s.user?.name);
   const operatorRole = useAuthStore((s) => s.user?.role);
+  const [terminal, setTerminalName] = useState(getTerminal);
   const [term, setTerm] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [saleDiscount, setSaleDiscount] = useState('');
@@ -135,16 +139,18 @@ export function PdvPage() {
   const nonCashOverpay = nonCashPaid > total + EPS;
 
   // ---------------------------------------------------------------- Carrinho
-  const addToCart = useCallback((product: Product) => {
+  const addToCart = useCallback((product: Product, quantity = 1) => {
     setScanMiss(null);
     setCart((prev) => {
       const found = prev.find((l) => l.product.id === product.id);
       if (found) {
         return prev.map((l) =>
-          l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l,
+          l.product.id === product.id
+            ? { ...l, quantity: Math.round((l.quantity + quantity) * 1000) / 1000 }
+            : l,
         );
       }
-      return [...prev, { product, quantity: 1, discount: '' }];
+      return [...prev, { product, quantity, discount: '' }];
     });
     setTerm('');
     searchRef.current?.focus();
@@ -157,6 +163,12 @@ export function PdvPage() {
         .filter((l) => l.quantity > 0),
     );
 
+  /** Itens por peso andam de 100 g; por unidade, de 1 em 1. */
+  const stepQty = (l: CartLine, dir: 1 | -1) => {
+    const step = l.product.pricingMode === 'WEIGHT' ? 0.1 : 1;
+    return Math.max(0, Math.round((l.quantity + dir * step) * 1000) / 1000);
+  };
+
   const setLineDiscount = (id: string, discount: string) =>
     setCart((prev) => prev.map((l) => (l.product.id === id ? { ...l, discount } : l)));
 
@@ -165,6 +177,21 @@ export function PdvPage() {
     async (raw: string) => {
       const code = raw.trim();
       if (!code) return;
+
+      // Etiqueta de balança: o peso vem embutido no próprio código.
+      const scale = parseScaleBarcode(code);
+      if (scale) {
+        try {
+          const weighed = await productsApi.byCode(scale.itemCode);
+          if (weighed.pricingMode === 'WEIGHT') {
+            addToCart(weighed, scale.kg);
+            return;
+          }
+        } catch {
+          /* não é um item de balança conhecido: cai no fluxo normal */
+        }
+      }
+
       try {
         const product = await productsApi.byCode(code);
         addToCart(product);
@@ -221,6 +248,7 @@ export function PdvPage() {
           .filter((p) => p.amount > 0),
         discount: saleDisc > 0 ? round2(saleDisc) : undefined,
         customerId: customerId || undefined,
+        terminal: terminal || undefined,
       }),
     onSuccess: (created) => {
       setFeedback(`Venda #${created.number} concluída — ${brl(created.total)}`);
@@ -245,6 +273,20 @@ export function PdvPage() {
     if (!lastSale) return;
     window.print();
   }, [lastSale]);
+
+  /** Recibo digital: abre WhatsApp (wa.me) ou o cliente de e-mail com o resumo. */
+  const shareReceipt = useCallback(
+    (via: 'whatsapp' | 'email') => {
+      if (!lastSale) return;
+      const text = receiptText(lastSale, store.data);
+      const url =
+        via === 'whatsapp'
+          ? whatsappUrl(text, lastSale.customer?.phone)
+          : mailtoUrl(text, `Recibo da venda #${lastSale.number}`, lastSale.customer?.email);
+      window.open(url, '_blank', 'noopener');
+    },
+    [lastSale, store.data],
+  );
 
   // Atalhos de teclado do balcão.
   useEffect(() => {
@@ -307,9 +349,21 @@ export function PdvPage() {
           <p className="eyebrow">Frente de caixa</p>
           <h1>Nova venda</h1>
         </div>
-        <span className={`tag ${cash.data ? 'tag-success' : 'tag-warning'}`}>
-          {cash.data ? 'Caixa aberto' : 'Caixa fechado'}
-        </span>
+        <div className="header-tags">
+          <label className="terminal-chip">
+            <span>Terminal</span>
+            <input
+              value={terminal}
+              placeholder="Caixa 01"
+              maxLength={40}
+              onChange={(e) => setTerminalName(e.target.value)}
+              onBlur={(e) => setTerminalName(setTerminal(e.target.value))}
+            />
+          </label>
+          <span className={`tag ${cash.data ? 'tag-success' : 'tag-warning'}`}>
+            {cash.data ? 'Caixa aberto' : 'Caixa fechado'}
+          </span>
+        </div>
       </div>
 
       <p className="pdv-shortcuts">
@@ -327,13 +381,17 @@ export function PdvPage() {
         <div className="success-message">
           {feedback}
           {lastSale ? (
-            <button
-              className="mini-button"
-              style={{ marginLeft: 12 }}
-              onClick={printReceipt}
-            >
-              Imprimir recibo (F9)
-            </button>
+            <span className="receipt-actions">
+              <button className="mini-button" onClick={printReceipt}>
+                Imprimir (F9)
+              </button>
+              <button className="mini-button" onClick={() => shareReceipt('whatsapp')}>
+                WhatsApp
+              </button>
+              <button className="mini-button" onClick={() => shareReceipt('email')}>
+                E-mail
+              </button>
+            </span>
           ) : null}
         </div>
       ) : null}
@@ -524,14 +582,15 @@ export function PdvPage() {
                       <small>{brl(l.product.price)} / {l.product.unit}</small>
                     </div>
                     <div className="qty-control">
-                      <button onClick={() => setQty(l.product.id, l.quantity - 1)}>−</button>
+                      <button onClick={() => setQty(l.product.id, stepQty(l, -1))}>−</button>
                       <input
+                        inputMode="decimal"
                         value={l.quantity}
                         onChange={(e) =>
-                          setQty(l.product.id, Math.max(0, Number(e.target.value) || 0))
+                          setQty(l.product.id, Math.max(0, toNumber(e.target.value)))
                         }
                       />
-                      <button onClick={() => setQty(l.product.id, l.quantity + 1)}>+</button>
+                      <button onClick={() => setQty(l.product.id, stepQty(l, 1))}>+</button>
                     </div>
                     <strong className="cart-line-total">{brl(lineTotal(l))}</strong>
                   </div>

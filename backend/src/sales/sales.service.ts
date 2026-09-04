@@ -186,6 +186,7 @@ export class SalesService {
           discount: saleDiscount,
           total,
           note: dto.note,
+          terminal: dto.terminal?.trim() || null,
           customerId: dto.customerId ?? null,
           operatorId,
           cashSessionId: openSession?.id ?? null,

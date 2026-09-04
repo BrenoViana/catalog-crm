@@ -20,6 +20,12 @@ enum Role {
   OPERADOR
 }
 
+/// Como o item e vendido: por unidade ou por peso (balanca, EAN-13 prefixo 2).
+enum PricingMode {
+  UNIT
+  WEIGHT
+}
+
 enum StockMovementType {
   ENTRADA
   SAIDA
@@ -135,6 +141,9 @@ model Product {
   name        String
   description String?
   unit        String   @default("UN")
+  /// UNIT: quantidade inteira. WEIGHT: preco e por unidade de peso (kg) e a
+  /// quantidade vem da balanca (peso embutido no EAN-13 de prefixo 2).
+  pricingMode PricingMode @default(UNIT)
   price       Decimal  @db.Decimal(12, 2)
   cost        Decimal? @db.Decimal(12, 2)
   imageUrl    String?
@@ -210,6 +219,8 @@ model Sale {
   id       String     @id @default(uuid())
   number   Int        @unique
   status   SaleStatus @default(ABERTA)
+  /// Nome do terminal/caixa que registrou a venda (por dispositivo).
+  terminal String?
   subtotal Decimal    @default(0) @db.Decimal(12, 2)
   discount Decimal    @default(0) @db.Decimal(12, 2)
   total    Decimal    @default(0) @db.Decimal(12, 2)
@@ -343,6 +354,8 @@ model CashSession {
   operatorId            String
   operator              User              @relation(fields: [operatorId], references: [id])
   status                CashSessionStatus @default(ABERTA)
+  /// Terminal/caixa em que o turno foi aberto.
+  terminal              String?
   openingAmount         Decimal           @db.Decimal(12, 2)
   openedAt              DateTime          @default(now())
   closingCountedAmount  Decimal?          @db.Decimal(12, 2)

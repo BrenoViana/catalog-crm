@@ -80,4 +80,10 @@ export class CreateSaleDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** Nome do terminal/caixa (por dispositivo) que registrou a venda. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  terminal?: string;
 }

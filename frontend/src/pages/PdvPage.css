@@ -51,6 +51,40 @@
   color: var(--text-strong);
 }
 
+/* Nome do terminal no cabeçalho — editável, salvo por dispositivo. */
+.terminal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.terminal-chip input {
+  width: 8.5rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-size: 0.8rem;
+}
+.terminal-chip input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+/* Ações do recibo na mensagem de venda concluída. */
+.receipt-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: 12px;
+}
+
 .pdv-shortcuts {
   margin: -4px 0 14px;
   color: var(--muted);
