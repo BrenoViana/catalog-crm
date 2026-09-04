@@ -6,7 +6,7 @@ interface FetchOptions extends RequestInit {
 
 export class ApiClient {
   private static getAuthToken(): string | null {
-    return localStorage.getItem('crm-token');
+    return localStorage.getItem('catalog.token');
   }
 
   private static getHeaders(): Record<string, string> {
@@ -23,8 +23,8 @@ export class ApiClient {
 
     if (!response.ok) {
       if (response.status === 401) {
-        localStorage.removeItem('crm-token');
-        localStorage.removeItem('crm-user');
+        localStorage.removeItem('catalog.token');
+        localStorage.removeItem('catalog.user');
         if (!location.pathname.startsWith('/login')) location.href = '/login';
       }
       const error = await response.json().catch(() => ({}));
@@ -39,8 +39,16 @@ export class ApiClient {
   static get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });
   }
-  static post<T>(endpoint: string, body?: unknown): Promise<T> {
-    return this.request<T>(endpoint, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
+  static post<T>(
+    endpoint: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+      headers,
+    });
   }
   static patch<T>(endpoint: string, body?: unknown): Promise<T> {
     return this.request<T>(endpoint, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined });
@@ -54,9 +62,19 @@ export class ApiClient {
 }
 
 // ---------------------------------------------------------------- Auth
+export interface AuthUser {
+  id: string;
+  username: string;
+  name: string;
+  /** Papel legado (enum). Exibicao apenas — a autorizacao vem de `permissions`. */
+  role: string;
+  roleKey: string | null;
+  roleName: string | null;
+}
 export interface AuthResponse {
   access_token: string;
-  user: { id: string; username: string; name: string; role: string };
+  user: AuthUser;
+  permissions: string[];
 }
 export const authApi = {
   login: (data: { username: string; password: string }) =>
@@ -118,6 +136,7 @@ export interface Product {
   name: string;
   description: string | null;
   unit: string;
+  pricingMode: 'UNIT' | 'WEIGHT';
   price: number;
   cost: number | null;
   active: boolean;
@@ -132,6 +151,7 @@ export interface CreateProductInput {
   barcode?: string;
   description?: string;
   unit?: string;
+  pricingMode?: 'UNIT' | 'WEIGHT';
   price: number;
   cost?: number;
   categoryId?: string;
@@ -275,6 +295,7 @@ export interface Sale {
   discount: number;
   total: number;
   note: string | null;
+  terminal: string | null;
   createdAt: string;
   completedAt: string | null;
   customer?: Customer | null;
@@ -322,6 +343,7 @@ export interface CreateSaleInput {
   customerId?: string;
   discount?: number;
   note?: string;
+  terminal?: string;
 }
 
 export interface SaleReturnItem {
@@ -351,15 +373,21 @@ export interface CreateReturnInput {
   refundMethod: PaymentMethod;
 }
 
+/** Vale de supervisor: viaja no header e vale para uma operação só. */
+const grantHeader = (grant?: string) =>
+  grant ? { 'X-Authorization-Grant': grant } : undefined;
+
 export const salesApi = {
   list: (status?: string) =>
     ApiClient.get<Sale[]>(`/sales${status ? `?status=${status}` : ''}`),
   get: (id: string) => ApiClient.get<Sale>(`/sales/${id}`),
-  create: (data: CreateSaleInput) => ApiClient.post<Sale>('/sales', data),
-  cancel: (id: string, reason: string) => ApiClient.post<Sale>(`/sales/${id}/cancel`, { reason }),
+  create: (data: CreateSaleInput, grant?: string) =>
+    ApiClient.post<Sale>('/sales', data, grantHeader(grant)),
+  cancel: (id: string, reason: string, grant?: string) =>
+    ApiClient.post<Sale>(`/sales/${id}/cancel`, { reason }, grantHeader(grant)),
   returns: (id: string) => ApiClient.get<SaleReturn[]>(`/sales/${id}/returns`),
-  createReturn: (id: string, data: CreateReturnInput) =>
-    ApiClient.post<SaleReturn>(`/sales/${id}/returns`, data),
+  createReturn: (id: string, data: CreateReturnInput, grant?: string) =>
+    ApiClient.post<SaleReturn>(`/sales/${id}/returns`, data, grantHeader(grant)),
 };
 
 // ---------------------------------------------------------------- Fiscal (NFC-e)
@@ -380,6 +408,7 @@ export const fiscalApi = {
 export interface CashSession {
   id: string;
   status: 'ABERTA' | 'FECHADA';
+  terminal: string | null;
   openingAmount: number;
   openedAt: string;
   closedAt: string | null;
@@ -395,6 +424,7 @@ export interface CashReport {
   session: {
     id: string;
     status: 'ABERTA' | 'FECHADA';
+    terminal: string | null;
     openedAt: string;
     closedAt: string | null;
     openingAmount: number;
@@ -419,8 +449,8 @@ export const cashApi = {
   history: () => ApiClient.get<CashSession[]>('/cash/history'),
   report: () => ApiClient.get<CashReport>('/cash/report'),
   reportFor: (sessionId: string) => ApiClient.get<CashReport>(`/cash/report/${sessionId}`),
-  open: (openingAmount: number, notes?: string) =>
-    ApiClient.post<CashSession>('/cash/open', { openingAmount, notes }),
+  open: (openingAmount: number, notes?: string, terminal?: string) =>
+    ApiClient.post<CashSession>('/cash/open', { openingAmount, notes, terminal }),
   movement: (type: 'SANGRIA' | 'SUPRIMENTO', amount: number, reason?: string) =>
     ApiClient.post<CashSession>('/cash/movement', { type, amount, reason }),
   close: (countedAmount: number, notes?: string) =>
@@ -475,4 +505,112 @@ export const licenseApi = {
   get: () => ApiClient.get<LicenseInfo>('/settings/license'),
   update: (key: string, customer?: string) =>
     ApiClient.put<LicenseInfo>('/settings/license', { key, customer }),
+};
+
+
+// ---------------------------------------------------------------- Acesso (RBAC)
+export interface Permission {
+  key: string;
+  group: string;
+  label: string;
+  description: string | null;
+  sortOrder: number;
+}
+
+export interface AccessRole {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  system: boolean;
+  permissions: Array<{ permissionKey: string }>;
+  _count?: { users: number };
+}
+
+export interface AccessUser {
+  id: string;
+  username: string;
+  name: string;
+  active: boolean;
+  createdAt: string;
+  roleId: string | null;
+  accessRole: { id: string; key: string; name: string; system: boolean } | null;
+  overrides: Array<{ permissionKey: string; allow: boolean }>;
+}
+
+export const accessApi = {
+  me: () => ApiClient.get<{ permissions: string[] }>('/access/me'),
+  permissions: () => ApiClient.get<Permission[]>('/access/permissions'),
+  roles: () => ApiClient.get<AccessRole[]>('/access/roles'),
+  createRole: (data: { key: string; name: string; description?: string; permissions: string[] }) =>
+    ApiClient.post<AccessRole>('/access/roles', data),
+  updateRole: (
+    id: string,
+    data: { name?: string; description?: string; permissions?: string[] },
+  ) => ApiClient.patch<AccessRole>(`/access/roles/${id}`, data),
+  removeRole: (id: string) => ApiClient.delete<{ message: string }>(`/access/roles/${id}`),
+  users: () => ApiClient.get<AccessUser[]>('/access/users'),
+  setUserRole: (id: string, roleId: string) =>
+    ApiClient.put<{ id: string; roleId: string }>(`/access/users/${id}/role`, { roleId }),
+  setUserOverrides: (id: string, overrides: Array<{ permissionKey: string; allow: boolean }>) =>
+    ApiClient.put(`/access/users/${id}/overrides`, { overrides }),
+  setUserActive: (id: string, active: boolean) =>
+    ApiClient.put(`/access/users/${id}/active`, { active }),
+
+  /** Pede a liberação de um supervisor para uma permissão específica. */
+  authorize: (data: {
+    username: string;
+    password: string;
+    permission: string;
+    reason?: string;
+  }) =>
+    ApiClient.post<{
+      token: string;
+      permission: string;
+      expiresInSeconds: number;
+      approver: { id: string; name: string };
+    }>('/access/authorize', data),
+
+  audit: (params?: { action?: string; take?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.action) q.set('action', params.action);
+    if (params?.take) q.set('take', String(params.take));
+    const qs = q.toString();
+    return ApiClient.get<AuditEntry[]>(`/access/audit${qs ? `?${qs}` : ''}`);
+  },
+};
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  permissionKey: string | null;
+  targetType: string | null;
+  targetId: string | null;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+  actor: { id: string; name: string; username: string };
+  approver: { id: string; name: string; username: string } | null;
+}
+
+// ---------------------------------------------------------------- Configuracoes do sistema
+export interface AppSettingRow {
+  key: string;
+  group: string;
+  label: string;
+  description?: string;
+  type: 'number' | 'string' | 'boolean';
+  value: number | string | boolean;
+  min?: number;
+  max?: number;
+  options?: string[];
+}
+
+export const appSettingsApi = {
+  list: () => ApiClient.get<AppSettingRow[]>('/app-settings'),
+  publicValues: () =>
+    ApiClient.get<{ maxInstallments: number; scanGapMs: number; drawerLimit: number }>(
+      '/app-settings/public',
+    ),
+  update: (settings: Array<{ key: string; value: unknown }>) =>
+    ApiClient.put<Array<{ key: string; value: unknown }>>('/app-settings', { settings }),
 };

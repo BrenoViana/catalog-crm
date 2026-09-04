@@ -51,12 +51,18 @@ async function main() {
   const base = `http://127.0.0.1:${port}/api`;
 
   let token = '';
-  const api = async (method: string, url: string, body?: unknown) => {
+  const api = async (
+    method: string,
+    url: string,
+    body?: unknown,
+    extraHeaders?: Record<string, string>,
+  ) => {
     const res = await fetch(base + url, {
       method,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(extraHeaders ?? {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -67,8 +73,11 @@ async function main() {
 
   const sku = `E2E-${Date.now()}`;
   const sku2 = `E2E-${Date.now()}-B`;
+  // Item de balanca: o codigo impresso na etiqueta tem 6 digitos.
+  const skuScale = String(Date.now()).slice(-6);
   let productId = '';
   let product2Id = '';
+  let scaleProductId = '';
   let saleId = '';
 
   try {
@@ -136,23 +145,29 @@ async function main() {
     productId = create.body.id;
 
     // 4) Abrir caixa com fundo de R$ 100
-    const open = await api('POST', '/cash/open', { openingAmount: 100 });
-    check('abre caixa -> ABERTA, abertura 100', () => {
+    const open = await api('POST', '/cash/open', {
+      openingAmount: 100,
+      terminal: 'Caixa E2E',
+    });
+    check('abre caixa -> ABERTA, abertura 100, terminal gravado', () => {
       assert.equal(open.status, 201);
       assert.equal(open.body.status, 'ABERTA');
       assert.equal(Number(open.body.openingAmount), 100);
+      assert.equal(open.body.terminal, 'Caixa E2E');
     });
 
     // 5) Vender 2 un a R$ 10, pagas em dinheiro (R$ 20)
     const sale = await api('POST', '/sales', {
       items: [{ productId, quantity: 2 }],
       payments: [{ method: 'DINHEIRO', amount: 20 }],
+      terminal: 'Caixa E2E',
     });
-    check('registra venda -> CONCLUIDA, total 20', () => {
+    check('registra venda -> CONCLUIDA, total 20, terminal gravado', () => {
       assert.equal(sale.status, 201);
       assert.equal(sale.body.status, 'CONCLUIDA');
       assert.equal(Number(sale.body.total), 20);
       assert.ok(sale.body.number > 0, 'venda sem numero');
+      assert.equal(sale.body.terminal, 'Caixa E2E');
     });
     saleId = sale.body.id;
 
@@ -178,6 +193,7 @@ async function main() {
     const readX = await api('GET', '/cash/report');
     check('leitura X -> 1 venda, 20 em dinheiro, esperado 120', () => {
       assert.equal(readX.body.kind, 'X');
+      assert.equal(readX.body.session.terminal, 'Caixa E2E');
       assert.equal(readX.body.sales.count, 1);
       assert.equal(Number(readX.body.sales.total), 20);
       assert.equal(Number(readX.body.cash.expected), 120);
@@ -335,6 +351,239 @@ async function main() {
       assert.equal(Number(stock2Back.body.stock.quantity), 5);
     });
 
+    // 7i) Item por peso: preco por kg, quantidade fracionaria vinda da balanca.
+    const scaleProduct = await api('POST', '/products', {
+      sku: skuScale,
+      name: 'Queijo Minas Frescal E2E',
+      price: 10,
+      pricingMode: 'WEIGHT',
+      initialStock: 5,
+      minStock: 1,
+    });
+    check('cria produto por peso -> pricingMode WEIGHT, unidade KG', () => {
+      assert.equal(scaleProduct.status, 201);
+      assert.equal(scaleProduct.body.pricingMode, 'WEIGHT');
+      assert.equal(scaleProduct.body.unit, 'KG');
+    });
+    scaleProductId = scaleProduct.body.id;
+
+    // Etiqueta 2 + 6 digitos de item + 01234 g -> 1,234 kg a R$ 10/kg = R$ 12,34
+    const weighed = await api('POST', '/sales', {
+      items: [{ productId: scaleProductId, quantity: 1.234 }],
+      payments: [{ method: 'PIX', amount: 12.34 }],
+    });
+    check('venda por peso 1,234 kg x R$ 10/kg -> total 12,34', () => {
+      assert.equal(weighed.status, 201);
+      assert.equal(Number(weighed.body.total), 12.34);
+      assert.equal(Number(weighed.body.items[0].quantity), 1.234);
+    });
+
+    const scaleStock = await api('GET', `/products/${scaleProductId}`);
+    check('estoque por peso baixou 1,234 (5 -> 3,766)', () => {
+      assert.equal(Number(scaleStock.body.stock.quantity), 3.766);
+    });
+
+    // 7j) Busca do PDV: tolera acento e erro de digitacao (indices trigram).
+    const byAccent = await api('GET', '/products?search=' + encodeURIComponent('miñas') + '&onlyActive=true');
+    const byTypo = await api('GET', '/products?search=' + encodeURIComponent('frescall') + '&onlyActive=true');
+    check('busca tolera acento e erro de digitacao', () => {
+      assert.ok(
+        byAccent.body.some((p: any) => p.id === scaleProductId),
+        'busca com acento nao achou o produto',
+      );
+      assert.ok(
+        byTypo.body.some((p: any) => p.id === scaleProductId),
+        'busca com erro de digitacao nao achou o produto',
+      );
+    });
+
+    await api('POST', `/sales/${weighed.body.id}/cancel`, { reason: 'e2e cleanup peso' });
+
+    // 7k) RBAC: catalogo de permissoes, papeis internos e enforcement real.
+    const perms = await api('GET', '/access/permissions');
+    const roles = await api('GET', '/access/roles');
+    check('catalogo de permissoes e papeis internos no banco', () => {
+      assert.equal(perms.status, 200);
+      assert.ok(perms.body.length >= 20, 'catalogo de permissoes vazio');
+      const keys = roles.body.map((r: any) => r.key).sort();
+      assert.deepEqual(keys, ['ADMIN', 'GERENTE', 'OPERADOR']);
+      const admin = roles.body.find((r: any) => r.key === 'ADMIN');
+      assert.equal(admin.permissions.length, perms.body.length, 'ADMIN sem acesso total');
+      assert.ok(admin.system, 'ADMIN deveria ser papel interno');
+    });
+
+    const meAdmin = await api('GET', '/access/me');
+    check('GET /access/me devolve o conjunto efetivo', () => {
+      assert.equal(meAdmin.status, 200);
+      assert.ok(meAdmin.body.permissions.includes('users.manage'));
+    });
+
+    // O operador nao enxerga gestao de acesso nem dashboard.
+    const adminToken2 = token;
+    const op2 = await api('POST', '/auth/login', { username: 'operador', password: 'operador' });
+    token = op2.body.access_token;
+    const opUsers = await api('GET', '/access/users');
+    const opDash = await api('GET', '/dashboard/summary');
+    const opSales = await api('GET', '/sales');
+    const opMe = await api('GET', '/access/me');
+    token = adminToken2;
+    check('operador: 403 em access/users e dashboard, 200 no que lhe cabe', () => {
+      assert.equal(opUsers.status, 403);
+      assert.equal(opDash.status, 403);
+      assert.equal(opSales.status, 200);
+      assert.equal(opMe.status, 200);
+      assert.ok(!opMe.body.permissions.includes('users.manage'));
+      assert.ok(opMe.body.permissions.includes('sales.create'));
+    });
+
+    // Excecao por usuario: concede dashboard.view so para o operador.
+    const opUser = (await api('GET', '/access/users')).body.find(
+      (u: any) => u.username === 'operador',
+    );
+    await api('PUT', `/access/users/${opUser.id}/overrides`, {
+      overrides: [{ permissionKey: 'dashboard.view', allow: true }],
+    });
+    const op3 = await api('POST', '/auth/login', { username: 'operador', password: 'operador' });
+    token = op3.body.access_token;
+    const opDash2 = await api('GET', '/dashboard/summary');
+    token = adminToken2;
+    check('excecao por usuario concede acesso na hora', () => {
+      assert.equal(opDash2.status, 200);
+      assert.ok(op3.body.permissions.includes('dashboard.view'));
+    });
+
+    // Limpa a excecao para nao vazar estado entre execucoes.
+    await api('PUT', `/access/users/${opUser.id}/overrides`, { overrides: [] });
+    const op4 = await api('POST', '/auth/login', { username: 'operador', password: 'operador' });
+    token = op4.body.access_token;
+    const opDash3 = await api('GET', '/dashboard/summary');
+    token = adminToken2;
+    check('remover a excecao volta a negar', () => {
+      assert.equal(opDash3.status, 403);
+    });
+
+    // Configuracoes do sistema vivem no banco e sao editaveis.
+    const settingsBefore = await api('GET', '/app-settings');
+    const original = settingsBefore.body.find((r: any) => r.key === 'sales.maxInstallments');
+    const putSetting = await api('PUT', '/app-settings', {
+      settings: [{ key: 'sales.maxInstallments', value: 18 }],
+    });
+    const settingsAfter = await api('GET', '/app-settings');
+    const changed = settingsAfter.body.find((r: any) => r.key === 'sales.maxInstallments');
+    await api('PUT', '/app-settings', {
+      settings: [{ key: 'sales.maxInstallments', value: original.value }],
+    });
+    const invalid = await api('PUT', '/app-settings', {
+      settings: [{ key: 'sales.maxInstallments', value: 999 }],
+    });
+    check('configuracoes no banco: leitura, escrita e validacao', () => {
+      assert.equal(settingsBefore.status, 200);
+      assert.ok(settingsBefore.body.length >= 5, 'catalogo de configuracoes vazio');
+      assert.equal(putSetting.status, 200, 'PUT de configuracao deveria responder 200');
+      assert.equal(Number(changed.value), 18);
+      assert.equal(invalid.status, 400, 'valor fora do intervalo deveria ser recusado');
+    });
+
+    // 7l) Supervisao: o operador esbarra no teto e um gerente libera na hora.
+    const adminToken3 = token;
+    const opLogin2 = await api('POST', '/auth/login', {
+      username: 'operador',
+      password: 'operador',
+    });
+    token = opLogin2.body.access_token;
+
+    const blocked = await api('POST', '/sales', {
+      items: [{ productId: product2Id, quantity: 1, discount: 3 }], // 30%
+      payments: [{ method: 'PIX', amount: 7 }],
+    });
+
+    // Credenciais erradas e auto-liberacao nao valem.
+    const badPass = await api('POST', '/access/authorize', {
+      username: 'gerente',
+      password: 'errada',
+      permission: 'sales.discountOverride',
+    });
+    const selfGrant = await api('POST', '/access/authorize', {
+      username: 'operador',
+      password: 'operador',
+      permission: 'sales.discountOverride',
+    });
+
+    const grant = await api('POST', '/access/authorize', {
+      username: 'gerente',
+      password: 'gerente',
+      permission: 'sales.discountOverride',
+      reason: 'cliente antigo, e2e',
+    });
+
+    const released = await api(
+      'POST',
+      '/sales',
+      {
+        items: [{ productId: product2Id, quantity: 1, discount: 3 }],
+        payments: [{ method: 'PIX', amount: 7 }],
+      },
+      { 'X-Authorization-Grant': grant.body?.token ?? '' },
+    );
+
+    // O mesmo vale nao serve duas vezes.
+    const reused = await api(
+      'POST',
+      '/sales',
+      {
+        items: [{ productId: product2Id, quantity: 1, discount: 3 }],
+        payments: [{ method: 'PIX', amount: 7 }],
+      },
+      { 'X-Authorization-Grant': grant.body?.token ?? '' },
+    );
+
+    // Vale para uma permissao que o operador nao tem: cancelar venda.
+    const cancelGrant = await api('POST', '/access/authorize', {
+      username: 'gerente',
+      password: 'gerente',
+      permission: 'sales.cancel',
+    });
+    const opCancel = await api(
+      'POST',
+      `/sales/${released.body?.id}/cancel`,
+      { reason: 'e2e supervisao' },
+      { 'X-Authorization-Grant': cancelGrant.body?.token ?? '' },
+    );
+
+    token = adminToken3;
+    check('supervisor libera desconto acima do teto (vale de uso unico)', () => {
+      assert.equal(blocked.status, 400, 'sem liberacao deveria barrar');
+      assert.equal(badPass.status, 401, 'senha errada deveria falhar');
+      assert.equal(selfGrant.status, 403, 'ninguem libera a si mesmo');
+      assert.equal(grant.status, 201);
+      assert.equal(grant.body.permission, 'sales.discountOverride');
+      assert.equal(released.status, 201, 'com o vale a venda deveria passar');
+      assert.equal(reused.status, 400, 'o vale nao pode ser reutilizado');
+    });
+    check('vale libera o operador a cancelar uma venda', () => {
+      assert.ok([200, 201].includes(opCancel.status));
+      assert.equal(opCancel.body.status, 'CANCELADA');
+    });
+
+    const audit = await api('GET', '/access/audit');
+    check('trilha de auditoria registra quem fez e quem liberou', () => {
+      assert.equal(audit.status, 200);
+      const override = audit.body.find(
+        (a: any) => a.action === 'sales.discountOverride',
+      );
+      assert.ok(override, 'sem registro de sales.discountOverride');
+      assert.equal(override.actor.username, 'operador');
+      assert.equal(override.approver.username, 'gerente');
+      const cancel = audit.body.find(
+        (a: any) => a.action === 'sales.cancel' && a.approver?.username === 'gerente',
+      );
+      assert.ok(cancel, 'sem registro do cancelamento liberado');
+      assert.ok(
+        audit.body.some((a: any) => a.action === 'authorization.grant'),
+        'sem registro da liberacao em si',
+      );
+    });
+
     // 8) Cancelar a venda (caixa ainda aberto)
     const cancel = await api('POST', `/sales/${saleId}/cancel`, {
       reason: 'e2e cleanup',
@@ -380,10 +629,10 @@ async function main() {
 
     // 11-Z) Relatorio Z do turno fechado: vendas do turno canceladas, diferenca 0.
     const readZ = await api('GET', `/cash/report/${close.body.id}`);
-    check('relatorio Z -> kind Z, 0 vendas ativas, 2 canceladas, diferenca 0', () => {
+    check('relatorio Z -> kind Z, 0 vendas ativas, 3 canceladas, diferenca 0', () => {
       assert.equal(readZ.body.kind, 'Z');
       assert.equal(readZ.body.sales.count, 0);
-      assert.equal(readZ.body.sales.canceledCount, 2);
+      assert.equal(readZ.body.sales.canceledCount, 3);
       assert.equal(Number(readZ.body.cash.difference), 0);
       assert.equal(Number(readZ.body.cash.counted), 100);
     });
@@ -395,6 +644,9 @@ async function main() {
       }
       if (product2Id) {
         await api('DELETE', `/products/${product2Id}`).catch(() => undefined);
+      }
+      if (scaleProductId) {
+        await api('DELETE', `/products/${scaleProductId}`).catch(() => undefined);
       }
     }
     await app.close();

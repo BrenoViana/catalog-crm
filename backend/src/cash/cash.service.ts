@@ -33,6 +33,7 @@ export class CashService {
         operatorId,
         openingAmount: D(dto.openingAmount),
         notes: dto.notes,
+        terminal: dto.terminal?.trim() || null,
         movements: {
           create: { type: 'ABERTURA', amount: D(dto.openingAmount), userId: operatorId },
         },
@@ -157,6 +158,7 @@ export class CashService {
       session: {
         id: session.id,
         status: session.status,
+        terminal: session.terminal,
         openedAt: session.openedAt,
         closedAt: session.closedAt,
         openingAmount: session.openingAmount,

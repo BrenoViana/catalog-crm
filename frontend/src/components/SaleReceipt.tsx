@@ -1,3 +1,4 @@
+import './SaleReceipt.css';
 import type { Sale, StoreSettings } from '../lib/api-client';
 import { brl, paymentLabel } from '../lib/format';
 

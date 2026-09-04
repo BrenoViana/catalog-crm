@@ -1,7 +1,16 @@
+import './SettingsPage.css';
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
-import { licenseApi, storeSettingsApi, type StoreSettings } from '../lib/api-client';
+import { UsersPermissionsModal } from '../components/UsersPermissionsModal';
+import {
+  appSettingsApi,
+  licenseApi,
+  storeSettingsApi,
+  type AppSettingRow,
+  type StoreSettings,
+} from '../lib/api-client';
 
 /** Durante a edição alguns campos numéricos carregam o texto cru do input. */
 type Form = { [K in keyof StoreSettings]?: StoreSettings[K] | string };
@@ -127,9 +136,34 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<Form>({});
   const [licenseKey, setLicenseKey] = useState('');
+  // ?modal=usuarios abre a gestão de acesso direto — link compartilhável.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const accessOpen = searchParams.get('modal') === 'usuarios';
+  const setAccessOpen = (open: boolean) => {
+    const next = new URLSearchParams(searchParams);
+    if (open) next.set('modal', 'usuarios');
+    else next.delete('modal');
+    setSearchParams(next, { replace: true });
+  };
+  const [systemDraft, setSystemDraft] = useState<Record<string, string>>({});
 
   const store = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
   const license = useQuery({ queryKey: ['license'], queryFn: licenseApi.get });
+  const system = useQuery({ queryKey: ['app-settings'], queryFn: appSettingsApi.list });
+
+  const saveSystem = useMutation({
+    mutationFn: () =>
+      appSettingsApi.update(
+        Object.entries(systemDraft).map(([key, value]) => ({ key, value })),
+      ),
+    onSuccess: () => {
+      setSystemDraft({});
+      queryClient.invalidateQueries({ queryKey: ['app-settings'] });
+    },
+  });
+
+  const systemValue = (row: AppSettingRow) =>
+    systemDraft[row.key] ?? String(row.value);
 
   useEffect(() => {
     if (store.data) setForm(store.data);
@@ -262,6 +296,86 @@ export function SettingsPage() {
         </p>
       </section>
 
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header">
+          <h2>Usuários e permissões</h2>
+        </div>
+        <p className="muted">
+          Papéis, permissões granulares por usuário e exceções individuais. Tudo é
+          gravado no banco — nenhum acesso fica preso no código.
+        </p>
+        <button
+          className="primary-button"
+          style={{ marginTop: 12 }}
+          onClick={() => setAccessOpen(true)}
+        >
+          Abrir usuários e permissões
+        </button>
+      </section>
+
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header">
+          <h2>Configurações do sistema</h2>
+        </div>
+        {system.isLoading ? (
+          <p className="muted">Carregando…</p>
+        ) : (
+          <>
+            {[...new Set((system.data ?? []).map((r) => r.group))].map((group) => (
+              <div key={group} className="settings-block">
+                <h3 className="turn-report-sub">{group}</h3>
+                <div className="form-grid">
+                  {(system.data ?? [])
+                    .filter((r) => r.group === group)
+                    .map((row) => (
+                      <label className="field" key={row.key}>
+                        <span>{row.label}</span>
+                        {row.options ? (
+                          <select
+                            value={systemValue(row)}
+                            onChange={(e) =>
+                              setSystemDraft((d) => ({ ...d, [row.key]: e.target.value }))
+                            }
+                          >
+                            {row.options.map((o) => (
+                              <option key={o} value={o}>{o}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            inputMode={row.type === 'number' ? 'decimal' : 'text'}
+                            value={systemValue(row)}
+                            onChange={(e) =>
+                              setSystemDraft((d) => ({ ...d, [row.key]: e.target.value }))
+                            }
+                          />
+                        )}
+                        {row.description ? (
+                          <small className="muted">{row.description}</small>
+                        ) : null}
+                      </label>
+                    ))}
+                </div>
+              </div>
+            ))}
+            {saveSystem.isError ? (
+              <div className="error-message">
+                {saveSystem.error instanceof Error
+                  ? saveSystem.error.message
+                  : 'Falha ao salvar.'}
+              </div>
+            ) : null}
+            <button
+              className="ghost-button"
+              disabled={Object.keys(systemDraft).length === 0 || saveSystem.isPending}
+              onClick={() => saveSystem.mutate()}
+            >
+              {saveSystem.isPending ? 'Salvando…' : 'Salvar configurações do sistema'}
+            </button>
+          </>
+        )}
+      </section>
+
       <section className="panel">
         <div className="panel-header">
           <h2>Licença</h2>
@@ -288,6 +402,8 @@ export function SettingsPage() {
           {activate.isPending ? 'Ativando…' : 'Ativar'}
         </button>
       </section>
+
+      {accessOpen ? <UsersPermissionsModal onClose={() => setAccessOpen(false)} /> : null}
     </Layout>
   );
 }

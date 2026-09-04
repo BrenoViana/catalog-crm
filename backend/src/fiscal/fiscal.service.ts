@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { FiscalStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppSettingsService } from '../settings/app-settings.service';
 import {
   FISCAL_PROVIDER,
   type FiscalEmitResult,
@@ -18,12 +19,17 @@ const EMITTABLE: FiscalStatus[] = ['PENDENTE', 'REJEITADA', 'CONTINGENCIA'];
 @Injectable()
 export class FiscalService {
   private readonly log = new Logger(FiscalService.name);
-  private readonly maxAttempts = 5;
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly settings: AppSettingsService,
     @Inject(FISCAL_PROVIDER) private readonly provider: FiscalProvider,
   ) {}
+
+  /** Teto de tentativas configuravel (fiscal.maxEmitAttempts). */
+  private maxAttempts() {
+    return this.settings.getNumber('fiscal.maxEmitAttempts');
+  }
 
   list(status?: string) {
     const parsed =
@@ -90,13 +96,14 @@ export class FiscalService {
         }`,
       );
       // Erro de comunicacao: volta a PENDENTE para retry, ate o teto de tentativas.
-      const giveUp = document.attempts >= this.maxAttempts;
+      const maxAttempts = await this.maxAttempts();
+      const giveUp = document.attempts >= maxAttempts;
       return this.prisma.fiscalDocument.update({
         where: { id: documentId },
         data: {
           status: giveUp ? 'REJEITADA' : 'PENDENTE',
           rejectionReason: giveUp
-            ? `Sem resposta do provedor apos ${this.maxAttempts} tentativas.`
+            ? `Sem resposta do provedor apos ${maxAttempts} tentativas.`
             : 'Falha de comunicacao com o provedor fiscal — sera reprocessado.',
         },
       });
@@ -182,7 +189,7 @@ export class FiscalService {
     const pend = await this.prisma.fiscalDocument.findMany({
       where: {
         status: { in: ['PENDENTE', 'REJEITADA'] },
-        attempts: { lt: this.maxAttempts },
+        attempts: { lt: await this.maxAttempts() },
       },
       select: { id: true },
       take: 50,

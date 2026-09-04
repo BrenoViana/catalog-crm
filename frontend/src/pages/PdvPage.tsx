@@ -1,8 +1,10 @@
+import './PdvPage.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { SaleReceipt } from '../components/SaleReceipt';
 import { CustomerFormModal, blankCustomerForm } from '../components/CustomerFormModal';
+import { SupervisorApprovalModal } from '../components/SupervisorApprovalModal';
 import {
   cashApi,
   customersApi,
@@ -15,6 +17,9 @@ import {
   type Sale,
 } from '../lib/api-client';
 import { brl, paymentLabel, resolveDiscount, round2, toNumber } from '../lib/format';
+import { parseScaleBarcode } from '../lib/barcode';
+import { mailtoUrl, receiptText, whatsappUrl } from '../lib/receipt-share';
+import { getTerminal, setTerminal } from '../lib/terminal';
 import { useAuthStore } from '../store/authStore';
 
 interface CartLine {
@@ -69,7 +74,8 @@ function settlePayments(rows: PayRow[], total: number): number[] {
 export function PdvPage() {
   const queryClient = useQueryClient();
   const operatorName = useAuthStore((s) => s.user?.name);
-  const operatorRole = useAuthStore((s) => s.user?.role);
+  const permissions = useAuthStore((s) => s.permissions);
+  const [terminal, setTerminalName] = useState(getTerminal);
   const [term, setTerm] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [saleDiscount, setSaleDiscount] = useState('');
@@ -79,6 +85,9 @@ export function PdvPage() {
   const [scanMiss, setScanMiss] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [quickAdd, setQuickAdd] = useState(false);
+  // Vale de supervisor obtido para esta venda (uso único, some ao finalizar).
+  const [askApproval, setAskApproval] = useState(false);
+  const [discountGrant, setDiscountGrant] = useState<{ token: string; by: string } | null>(null);
   const [justAdded, setJustAdded] = useState<{ id: string; name: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -119,9 +128,11 @@ export function PdvPage() {
     grossSubtotal > 0 ? ((grossSubtotal - total) / grossSubtotal) * 100 : 0;
   const discountLimit = store.data?.maxDiscountPercentOperator ?? null;
   const overDiscountLimit =
-    operatorRole === 'OPERADOR' &&
+    !permissions.includes('sales.discountOverride') &&
     discountLimit != null &&
     discountPct > discountLimit + 0.01;
+  // Com o vale na mão, a venda passa mesmo acima do teto.
+  const blockedByDiscount = overDiscountLimit && !discountGrant;
 
   const effective = useMemo(() => settlePayments(payments, total), [payments, total]);
   const paid = round2(effective.reduce((acc, v) => acc + v, 0));
@@ -134,16 +145,18 @@ export function PdvPage() {
   const nonCashOverpay = nonCashPaid > total + EPS;
 
   // ---------------------------------------------------------------- Carrinho
-  const addToCart = useCallback((product: Product) => {
+  const addToCart = useCallback((product: Product, quantity = 1) => {
     setScanMiss(null);
     setCart((prev) => {
       const found = prev.find((l) => l.product.id === product.id);
       if (found) {
         return prev.map((l) =>
-          l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l,
+          l.product.id === product.id
+            ? { ...l, quantity: Math.round((l.quantity + quantity) * 1000) / 1000 }
+            : l,
         );
       }
-      return [...prev, { product, quantity: 1, discount: '' }];
+      return [...prev, { product, quantity, discount: '' }];
     });
     setTerm('');
     searchRef.current?.focus();
@@ -156,6 +169,12 @@ export function PdvPage() {
         .filter((l) => l.quantity > 0),
     );
 
+  /** Itens por peso andam de 100 g; por unidade, de 1 em 1. */
+  const stepQty = (l: CartLine, dir: 1 | -1) => {
+    const step = l.product.pricingMode === 'WEIGHT' ? 0.1 : 1;
+    return Math.max(0, Math.round((l.quantity + dir * step) * 1000) / 1000);
+  };
+
   const setLineDiscount = (id: string, discount: string) =>
     setCart((prev) => prev.map((l) => (l.product.id === id ? { ...l, discount } : l)));
 
@@ -164,6 +183,21 @@ export function PdvPage() {
     async (raw: string) => {
       const code = raw.trim();
       if (!code) return;
+
+      // Etiqueta de balança: o peso vem embutido no próprio código.
+      const scale = parseScaleBarcode(code);
+      if (scale) {
+        try {
+          const weighed = await productsApi.byCode(scale.itemCode);
+          if (weighed.pricingMode === 'WEIGHT') {
+            addToCart(weighed, scale.kg);
+            return;
+          }
+        } catch {
+          /* não é um item de balança conhecido: cai no fluxo normal */
+        }
+      }
+
       try {
         const product = await productsApi.byCode(code);
         addToCart(product);
@@ -205,7 +239,8 @@ export function PdvPage() {
 
   const sale = useMutation({
     mutationFn: () =>
-      salesApi.create({
+      salesApi.create(
+        {
         items: cart.map((l) => ({
           productId: l.product.id,
           quantity: l.quantity,
@@ -218,12 +253,16 @@ export function PdvPage() {
             installments: r.method === 'CREDITO' ? r.installments : undefined,
           }))
           .filter((p) => p.amount > 0),
-        discount: saleDisc > 0 ? round2(saleDisc) : undefined,
-        customerId: customerId || undefined,
-      }),
+          discount: saleDisc > 0 ? round2(saleDisc) : undefined,
+          customerId: customerId || undefined,
+          terminal: terminal || undefined,
+        },
+        discountGrant?.token,
+      ),
     onSuccess: (created) => {
       setFeedback(`Venda #${created.number} concluída — ${brl(created.total)}`);
       setLastSale(created);
+      setDiscountGrant(null);
       resetSale();
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['cash'] });
@@ -237,13 +276,27 @@ export function PdvPage() {
     total > EPS &&
     paid + EPS >= total &&
     !nonCashOverpay &&
-    !overDiscountLimit &&
+    !blockedByDiscount &&
     !sale.isPending;
 
   const printReceipt = useCallback(() => {
     if (!lastSale) return;
     window.print();
   }, [lastSale]);
+
+  /** Recibo digital: abre WhatsApp (wa.me) ou o cliente de e-mail com o resumo. */
+  const shareReceipt = useCallback(
+    (via: 'whatsapp' | 'email') => {
+      if (!lastSale) return;
+      const text = receiptText(lastSale, store.data);
+      const url =
+        via === 'whatsapp'
+          ? whatsappUrl(text, lastSale.customer?.phone)
+          : mailtoUrl(text, `Recibo da venda #${lastSale.number}`, lastSale.customer?.email);
+      window.open(url, '_blank', 'noopener');
+    },
+    [lastSale, store.data],
+  );
 
   // Atalhos de teclado do balcão.
   useEffect(() => {
@@ -306,9 +359,21 @@ export function PdvPage() {
           <p className="eyebrow">Frente de caixa</p>
           <h1>Nova venda</h1>
         </div>
-        <span className={`tag ${cash.data ? 'tag-success' : 'tag-warning'}`}>
-          {cash.data ? 'Caixa aberto' : 'Caixa fechado'}
-        </span>
+        <div className="header-tags">
+          <label className="terminal-chip">
+            <span>Terminal</span>
+            <input
+              value={terminal}
+              placeholder="Caixa 01"
+              maxLength={40}
+              onChange={(e) => setTerminalName(e.target.value)}
+              onBlur={(e) => setTerminalName(setTerminal(e.target.value))}
+            />
+          </label>
+          <span className={`tag ${cash.data ? 'tag-success' : 'tag-warning'}`}>
+            {cash.data ? 'Caixa aberto' : 'Caixa fechado'}
+          </span>
+        </div>
       </div>
 
       <p className="pdv-shortcuts">
@@ -326,13 +391,17 @@ export function PdvPage() {
         <div className="success-message">
           {feedback}
           {lastSale ? (
-            <button
-              className="mini-button"
-              style={{ marginLeft: 12 }}
-              onClick={printReceipt}
-            >
-              Imprimir recibo (F9)
-            </button>
+            <span className="receipt-actions">
+              <button className="mini-button" onClick={printReceipt}>
+                Imprimir (F9)
+              </button>
+              <button className="mini-button" onClick={() => shareReceipt('whatsapp')}>
+                WhatsApp
+              </button>
+              <button className="mini-button" onClick={() => shareReceipt('email')}>
+                E-mail
+              </button>
+            </span>
           ) : null}
         </div>
       ) : null}
@@ -346,129 +415,84 @@ export function PdvPage() {
           {sale.error instanceof Error ? sale.error.message : 'Erro ao finalizar a venda'}
         </div>
       ) : null}
-      {overDiscountLimit ? (
+      {blockedByDiscount ? (
         <div className="error-message">
           Desconto de {discountPct.toFixed(1)}% acima do limite de{' '}
-          {Number(discountLimit).toFixed(0)}% para o operador. Reduza o desconto ou peça
-          liberação a um gerente.
+          {Number(discountLimit).toFixed(0)}%. Reduza o desconto ou peça liberação.
+          <button
+            className="mini-button"
+            style={{ marginLeft: 12 }}
+            onClick={() => setAskApproval(true)}
+          >
+            Pedir liberação
+          </button>
+        </div>
+      ) : null}
+      {discountGrant ? (
+        <div className="success-message">
+          Desconto liberado por <strong>{discountGrant.by}</strong> — vale válido para
+          esta venda.
         </div>
       ) : null}
 
       <div className="pdv-layout">
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Produtos</h2>
-          </div>
-          <input
-            ref={searchRef}
-            autoFocus
-            className="field-input"
-            placeholder="Buscar por nome, SKU ou código de barras…"
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-            onKeyDown={onSearchKey}
-          />
-          <ul className="result-list">
-            {results.data?.map((p) => (
-              <li key={p.id}>
-                <button className="result-row" onClick={() => addToCart(p)}>
-                  <span>
-                    <strong>{p.name}</strong>
-                    <small>
-                      {p.sku} · estoque {p.stock?.quantity ?? 0} {p.unit}
-                    </small>
-                  </span>
-                  <span>{brl(p.price)}</span>
-                </button>
-              </li>
-            ))}
-            {term.trim().length >= 2 && results.data?.length === 0 ? (
-              <li className="muted" style={{ padding: '10px 4px' }}>
-                Nenhum produto encontrado.
-              </li>
-            ) : null}
-          </ul>
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Carrinho ({cart.length})</h2>
-          </div>
-
-          {cart.length === 0 ? (
-            <p className="muted">Adicione produtos para iniciar a venda.</p>
-          ) : (
-            <ul className="cart">
-              {cart.map((l) => (
-                <li key={l.product.id} className="cart-line">
-                  <div className="cart-line-row">
-                    <div className="cart-line-main">
-                      <strong>{l.product.name}</strong>
-                      <small>{brl(l.product.price)} / {l.product.unit}</small>
-                    </div>
-                    <div className="qty-control">
-                      <button onClick={() => setQty(l.product.id, l.quantity - 1)}>−</button>
-                      <input
-                        value={l.quantity}
-                        onChange={(e) =>
-                          setQty(l.product.id, Math.max(0, Number(e.target.value) || 0))
-                        }
-                      />
-                      <button onClick={() => setQty(l.product.id, l.quantity + 1)}>+</button>
-                    </div>
-                    <strong className="cart-line-total">{brl(lineTotal(l))}</strong>
-                  </div>
-                  <div className="cart-line-extra">
-                    <label>
-                      <span>Desconto</span>
-                      <input
-                        inputMode="text"
-                        value={l.discount}
-                        placeholder="R$ ou %"
-                        onChange={(e) => setLineDiscount(l.product.id, e.target.value)}
-                      />
-                    </label>
-                    {lineDiscount(l) > 0 ? (
-                      <small className="muted">
-                        −{brl(lineDiscount(l))} · bruto {brl(lineGross(l))}
+        <div className="pdv-catalog">
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Produtos</h2>
+            </div>
+            <input
+              ref={searchRef}
+              autoFocus
+              className="field-input"
+              placeholder="Buscar por nome, SKU ou código de barras…"
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              onKeyDown={onSearchKey}
+            />
+            <ul className="result-list">
+              {results.data?.map((p) => (
+                <li key={p.id}>
+                  <button className="result-row" onClick={() => addToCart(p)}>
+                    <span>
+                      <strong>{p.name}</strong>
+                      <small>
+                        {p.sku} · estoque {p.stock?.quantity ?? 0} {p.unit}
                       </small>
-                    ) : null}
-                  </div>
+                    </span>
+                    <span>{brl(p.price)}</span>
+                  </button>
                 </li>
               ))}
-            </ul>
-          )}
-
-          <div className="cart-totals">
-            <div className="cart-totals-row">
-              <span>Subtotal</span>
-              <span>{brl(grossSubtotal)}</span>
-            </div>
-            {itemDiscountTotal > 0 ? (
-              <div className="cart-totals-row">
-                <span>Descontos nos itens</span>
-                <span>−{brl(itemDiscountTotal)}</span>
-              </div>
-            ) : null}
-            <label className="field">
-              <span>Desconto na venda</span>
-              <input
-                inputMode="text"
-                value={saleDiscount}
-                placeholder="R$ ou % (ex.: 5 ou 5%)"
-                onChange={(e) => setSaleDiscount(e.target.value)}
-              />
-              {saleDisc > 0 ? <small className="muted">−{brl(saleDisc)}</small> : null}
-              {discountLimit != null && operatorRole === 'OPERADOR' ? (
-                <small className="muted">Limite do operador: {Number(discountLimit).toFixed(0)}%</small>
+              {term.trim().length >= 2 && results.data?.length === 0 ? (
+                <li className="muted" style={{ padding: '10px 4px' }}>
+                  Nenhum produto encontrado.
+                </li>
               ) : null}
-            </label>
-          </div>
+            </ul>
+          </section>
 
-          <div className="cart-summary">
-            <span>Total</span>
-            <strong>{brl(total)}</strong>
-          </div>
+          <section className="panel pdv-checkout">
+            <div className="cart-summary">
+              <span>Total</span>
+              <strong>{brl(total)}</strong>
+            </div>
+
+            <div className="cart-totals">
+              <label className="field">
+                <span>Desconto na venda</span>
+                <input
+                  inputMode="text"
+                  value={saleDiscount}
+                  placeholder="R$ ou % (ex.: 5 ou 5%)"
+                  onChange={(e) => setSaleDiscount(e.target.value)}
+                />
+                {saleDisc > 0 ? <small className="muted">−{brl(saleDisc)}</small> : null}
+                {discountLimit != null && !permissions.includes('sales.discountOverride') ? (
+                  <small className="muted">Limite de desconto: {Number(discountLimit).toFixed(0)}%</small>
+                ) : null}
+              </label>
+            </div>
 
           <label className="field">
             <span>Cliente (opcional)</span>
@@ -560,8 +584,88 @@ export function PdvPage() {
           >
             {sale.isPending ? 'Finalizando…' : `Finalizar venda — ${brl(total)}`}
           </button>
+          </section>
+        </div>
+
+        <section className="panel pdv-cart">
+          <div className="panel-header">
+            <h2>Carrinho ({cart.length})</h2>
+          </div>
+
+          {cart.length === 0 ? (
+            <p className="muted">Adicione produtos para iniciar a venda.</p>
+          ) : (
+            <ul className="cart">
+              {cart.map((l) => (
+                <li key={l.product.id} className="cart-line">
+                  <div className="cart-line-row">
+                    <div className="cart-line-main">
+                      <strong>{l.product.name}</strong>
+                      <small>{brl(l.product.price)} / {l.product.unit}</small>
+                    </div>
+                    <div className="qty-control">
+                      <button onClick={() => setQty(l.product.id, stepQty(l, -1))}>−</button>
+                      <input
+                        inputMode="decimal"
+                        value={l.quantity}
+                        onChange={(e) =>
+                          setQty(l.product.id, Math.max(0, toNumber(e.target.value)))
+                        }
+                      />
+                      <button onClick={() => setQty(l.product.id, stepQty(l, 1))}>+</button>
+                    </div>
+                    <strong className="cart-line-total">{brl(lineTotal(l))}</strong>
+                  </div>
+                  <div className="cart-line-extra">
+                    <label>
+                      <span>Desconto</span>
+                      <input
+                        inputMode="text"
+                        value={l.discount}
+                        placeholder="R$ ou %"
+                        onChange={(e) => setLineDiscount(l.product.id, e.target.value)}
+                      />
+                    </label>
+                    {lineDiscount(l) > 0 ? (
+                      <small className="muted">
+                        −{brl(lineDiscount(l))} · bruto {brl(lineGross(l))}
+                      </small>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="cart-totals cart-subtotal">
+            <div className="cart-totals-row">
+              <span>Subtotal</span>
+              <span>{brl(grossSubtotal)}</span>
+            </div>
+            {itemDiscountTotal > 0 ? (
+              <div className="cart-totals-row">
+                <span>Descontos nos itens</span>
+                <span>−{brl(itemDiscountTotal)}</span>
+              </div>
+            ) : null}
+          </div>
         </section>
       </div>
+
+      {askApproval ? (
+        <SupervisorApprovalModal
+          permission="sales.discountOverride"
+          title="Liberar desconto acima do teto"
+          description={`O desconto de ${discountPct.toFixed(1)}% passa do limite de ${Number(
+            discountLimit,
+          ).toFixed(0)}%. Um supervisor precisa autorizar.`}
+          onClose={() => setAskApproval(false)}
+          onApproved={(token, by) => {
+            setDiscountGrant({ token, by });
+            setAskApproval(false);
+          }}
+        />
+      ) : null}
 
       {quickAdd ? (
         <CustomerFormModal

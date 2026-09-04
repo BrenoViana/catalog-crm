@@ -13,8 +13,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ImportProductsDto } from './dto/import-products.dto';
 import { ProductsImportService } from './products-import.service';
-import { Role } from '@prisma/client';
-import { Roles } from '../common/roles.decorator';
+import { RequirePermissions } from '../common/permissions.decorator';
 
 @Controller()
 export class ProductsController {
@@ -23,6 +22,7 @@ export class ProductsController {
     private readonly importService: ProductsImportService,
   ) {}
 
+  @RequirePermissions('products.view')
   @Get('products')
   findAll(
     @Query('search') search?: string,
@@ -36,40 +36,43 @@ export class ProductsController {
     });
   }
 
+  @RequirePermissions('products.view')
   @Get('tax-groups')
   taxGroups() {
     return this.productsService.listTaxGroups();
   }
 
+  @RequirePermissions('products.view')
   @Get('products/by-code/:code')
   findByCode(@Param('code') code: string) {
     return this.productsService.findByCode(code);
   }
 
+  @RequirePermissions('products.view')
   @Get('products/:id')
   findOne(@Param('id') id: string) {
     return this.productsService.findOne(id);
   }
 
-  @Roles(Role.GERENTE)
+  @RequirePermissions('products.import')
   @Post('products/import')
   import(@Body() dto: ImportProductsDto) {
     return this.importService.import(dto);
   }
 
-  @Roles(Role.GERENTE)
+  @RequirePermissions('products.manage')
   @Post('products')
   create(@Body() dto: CreateProductDto) {
     return this.productsService.create(dto);
   }
 
-  @Roles(Role.GERENTE)
+  @RequirePermissions('products.manage')
   @Patch('products/:id')
   update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.productsService.update(id, dto);
   }
 
-  @Roles(Role.GERENTE)
+  @RequirePermissions('products.manage')
   @Delete('products/:id')
   remove(@Param('id') id: string) {
     return this.productsService.remove(id);

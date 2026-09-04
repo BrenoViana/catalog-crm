@@ -1,0 +1,205 @@
+/* Frente de caixa (PDV).
+   Coluna esquerda (larga) = busca de produtos + checkout
+     (Total → Desconto na venda → Cliente → Pagamento → Finalizar).
+   Coluna direita = carrinho (itens) + Subtotal no rodapé. */
+.pdv-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.pdv-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+/* Produtos e checkout ocupam toda a largura da coluna esquerda. */
+.pdv-catalog > .panel {
+  width: 100%;
+}
+
+/* O carrinho (item da grade) não estica na altura da linha. */
+.pdv-cart {
+  align-self: start;
+  min-width: 0;
+}
+
+/* Total abre o painel de checkout: sem régua no topo (a borda do painel já
+   separa) e destacado. */
+.pdv-checkout .cart-summary {
+  border-top: none;
+  padding-top: 0;
+  margin-bottom: 14px;
+}
+.pdv-checkout .cart-summary strong {
+  font-size: 1.6rem;
+}
+.pdv-checkout .cart-totals {
+  padding-top: 0;
+}
+
+/* Subtotal no rodapé do carrinho, separado da lista por uma régua. */
+.cart-subtotal {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.cart-subtotal .cart-totals-row:first-child {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+/* Nome do terminal no cabeçalho — editável, salvo por dispositivo. */
+.terminal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.terminal-chip input {
+  width: 8.5rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-size: 0.8rem;
+}
+.terminal-chip input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+}
+
+/* Ações do recibo na mensagem de venda concluída. */
+.receipt-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: 12px;
+}
+
+.pdv-shortcuts {
+  margin: -4px 0 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.pdv-shortcuts kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+.result-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; max-height: 420px; overflow-y: auto; }
+.result-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface-4);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--text);
+  text-align: left;
+}
+.result-row:hover { border-color: var(--accent-border); background: var(--accent-soft); }
+.result-row small, .cart-line small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+
+.cart { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.cart-line {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.cart-line-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+}
+.cart-line-main strong { display: block; }
+.cart-line-total { min-width: 90px; text-align: right; }
+.cart-line-extra { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cart-line-extra label { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); }
+.cart-line-extra input {
+  width: 84px;
+  text-align: right;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: var(--text-strong);
+}
+.cart-line-extra small { font-size: 0.76rem; }
+
+.cart-totals { display: grid; gap: 6px; padding: 6px 0 0; }
+.cart-totals-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: var(--text-soft);
+}
+.cart-totals .field { margin: 6px 0 0; }
+
+.qty-control { display: flex; align-items: center; gap: 6px; }
+.qty-control button {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+.qty-control input {
+  width: 46px;
+  text-align: center;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  color: var(--text-strong);
+}
+
+.pay-list { display: grid; gap: 8px; margin-bottom: 8px; }
+.pay-row { display: flex; align-items: center; gap: 8px; }
+.pay-row select,
+.pay-row input {
+  min-width: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 11px;
+  color: var(--text-strong);
+}
+.pay-row > select:first-child { flex: 0 0 8.5rem; }
+.pay-row > input { flex: 1; text-align: right; }
+.pay-row > select:nth-child(3) { flex: 0 0 4.5rem; }
+.pay-status { margin: 10px 0 12px; font-weight: 600; font-size: 0.9rem; }
+.pay-methods { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+
+/* Campo com botão de ação ao lado (cliente + cadastrar). */
+.input-with-action { display: flex; gap: 8px; align-items: stretch; }
+.input-with-action select,
+.input-with-action input { flex: 1; min-width: 0; }
+.input-with-action .mini-button { white-space: nowrap; }
+
+@media (max-width: 1024px) {
+  .pdv-layout { grid-template-columns: 1fr; }
+  .pdv-catalog { gap: 16px; }
+}

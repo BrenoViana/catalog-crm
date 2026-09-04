@@ -20,6 +20,12 @@ enum Role {
   OPERADOR
 }
 
+/// Como o item e vendido: por unidade ou por peso (balanca, EAN-13 prefixo 2).
+enum PricingMode {
+  UNIT
+  WEIGHT
+}
+
 enum StockMovementType {
   ENTRADA
   SAIDA
@@ -42,6 +48,17 @@ enum PaymentMethod {
   CREDITO
   CREDIARIO
   OUTRO
+}
+
+/// Ciclo de vida de um pagamento. Dinheiro nasce CONFIRMADO; meios
+/// eletronicos passam pelo PaymentGateway antes de virar confirmado.
+enum PaymentStatus {
+  PENDENTE
+  PROCESSANDO
+  AUTORIZADO
+  CONFIRMADO
+  NEGADO
+  ESTORNADO
 }
 
 enum FiscalStatus {
@@ -82,15 +99,98 @@ model User {
   username     String   @unique
   passwordHash String
   name         String
+  /// Papel legado (enum). Mantido só para leitura de dados antigos e para o
+  /// seed; a autorizacao real sai de roleId -> RolePermission.
   role         Role     @default(OPERADOR)
+  roleId       String?
+  accessRole   AccessRole? @relation(fields: [roleId], references: [id])
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt @default(now())
 
   sales          Sale[]
   cashSessions   CashSession[]
   stockMovements StockMovement[]
   cashMovements  CashMovement[]
   saleReturns    SaleReturn[]
+  overrides      UserPermission[]
+  auditActions   AuditLog[]       @relation("AuditActor")
+  auditApprovals AuditLog[]       @relation("AuditApprover")
+
+  @@index([roleId])
+}
+
+// ---------------------------------------------------------------------------
+// Permissionamento (RBAC): catalogo de permissoes -> papeis -> usuarios,
+// com excecoes por usuario. Tudo no banco; nada de papel fixo no codigo.
+// ---------------------------------------------------------------------------
+
+/// Uma capacidade granular do sistema, ex.: "sales.cancel".
+/// As linhas sao semeadas pelo backend (PERMISSION_CATALOG) a cada boot.
+model Permission {
+  key         String  @id
+  group       String
+  label       String
+  description String?
+  /// Ordem de exibicao dentro do grupo na tela de permissoes.
+  sortOrder   Int     @default(0)
+
+  roles RolePermission[]
+  users UserPermission[]
+
+  @@index([group])
+}
+
+/// Conjunto nomeado de permissoes. `system` marca os papeis internos
+/// (Administrador, Gerente, Operador): nao podem ser apagados nem renomeados,
+/// mas o Administrador pode ajustar as permissoes de Gerente e Operador.
+model AccessRole {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  system      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions RolePermission[]
+  users       User[]
+}
+
+model RolePermission {
+  roleId        String
+  role          AccessRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionKey String
+  permission    Permission @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@id([roleId, permissionKey])
+  @@index([permissionKey])
+}
+
+/// Excecao por usuario: concede (allow=true) ou revoga (allow=false) uma
+/// permissao independentemente do papel. Sempre vence sobre o papel.
+model UserPermission {
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionKey String
+  permission    Permission @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+  allow         Boolean
+
+  @@id([userId, permissionKey])
+  @@index([permissionKey])
+}
+
+/// Configuracao do sistema em chave/valor — tira do codigo o que e ajustavel
+/// (limites de rate limit, parcelas maximas, retentativa fiscal, ...).
+model AppSetting {
+  key         String   @id
+  value       Json
+  group       String   @default("geral")
+  label       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([group])
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +235,9 @@ model Product {
   name        String
   description String?
   unit        String   @default("UN")
+  /// UNIT: quantidade inteira. WEIGHT: preco e por unidade de peso (kg) e a
+  /// quantidade vem da balanca (peso embutido no EAN-13 de prefixo 2).
+  pricingMode PricingMode @default(UNIT)
   price       Decimal  @db.Decimal(12, 2)
   cost        Decimal? @db.Decimal(12, 2)
   imageUrl    String?
@@ -210,6 +313,8 @@ model Sale {
   id       String     @id @default(uuid())
   number   Int        @unique
   status   SaleStatus @default(ABERTA)
+  /// Nome do terminal/caixa que registrou a venda (por dispositivo).
+  terminal String?
   subtotal Decimal    @default(0) @db.Decimal(12, 2)
   discount Decimal    @default(0) @db.Decimal(12, 2)
   total    Decimal    @default(0) @db.Decimal(12, 2)
@@ -264,7 +369,39 @@ model Payment {
   installments Int?
   createdAt    DateTime      @default(now())
 
+  // Costura de pagamentos: o que o gateway devolve fica aqui.
+  status            PaymentStatus @default(CONFIRMADO)
+  provider          String?
+  externalId        String?
+  authorizationCode String?
+  /// Payload do QR (Pix) para o cliente pagar.
+  qrCode            String?
+  rejectionReason   String?
+  authorizedAt      DateTime?
+  refundedAt        DateTime?
+
   @@index([saleId])
+  @@index([status])
+}
+
+/// Trilha de auditoria de operacoes sensiveis: quem fez, quem liberou e sobre o que.
+model AuditLog {
+  id            String   @id @default(uuid())
+  action        String
+  permissionKey String?
+  actorId       String
+  actor         User     @relation("AuditActor", fields: [actorId], references: [id])
+  /// Supervisor que autorizou na hora, quando a acao exigiu liberacao.
+  approverId    String?
+  approver      User?    @relation("AuditApprover", fields: [approverId], references: [id])
+  targetType    String?
+  targetId      String?
+  detail        Json?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
 }
 
 /// Devolucao (total ou parcial) de itens de uma venda ja concluida. Nao altera
@@ -343,6 +480,8 @@ model CashSession {
   operatorId            String
   operator              User              @relation(fields: [operatorId], references: [id])
   status                CashSessionStatus @default(ABERTA)
+  /// Terminal/caixa em que o turno foi aberto.
+  terminal              String?
   openingAmount         Decimal           @db.Decimal(12, 2)
   openedAt              DateTime          @default(now())
   closingCountedAmount  Decimal?          @db.Decimal(12, 2)

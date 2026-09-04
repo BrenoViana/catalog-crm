@@ -1,8 +1,10 @@
+import './CashPage.css';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { cashApi, type CashReport } from '../lib/api-client';
 import { brl, dateTime, paymentLabel } from '../lib/format';
+import { getTerminal, setTerminal } from '../lib/terminal';
 
 const movementLabel: Record<string, string> = {
   ABERTURA: 'Abertura',
@@ -18,7 +20,10 @@ function TurnReport({ report }: { report: CashReport }) {
     <div className="turn-report">
       <div className="panel-header">
         <h2>{isZ ? 'Fechamento (Z)' : 'Leitura de turno (X)'}</h2>
-        <span className="muted">{dateTime(report.generatedAt)}</span>
+        <span className="muted">
+          {report.session.terminal ? `${report.session.terminal} · ` : ''}
+          {dateTime(report.generatedAt)}
+        </span>
       </div>
 
       <div className="stats-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -88,6 +93,7 @@ function TurnReport({ report }: { report: CashReport }) {
 export function CashPage() {
   const queryClient = useQueryClient();
   const [opening, setOpening] = useState('');
+  const [terminal, setTerminalName] = useState(getTerminal);
   const [counted, setCounted] = useState('');
   const [mov, setMov] = useState({ type: 'SANGRIA' as 'SANGRIA' | 'SUPRIMENTO', amount: '', reason: '' });
 
@@ -99,7 +105,7 @@ export function CashPage() {
   };
 
   const open = useMutation({
-    mutationFn: () => cashApi.open(Number(opening) || 0),
+    mutationFn: () => cashApi.open(Number(opening) || 0, undefined, terminal || undefined),
     onSuccess: () => {
       setOpening('');
       invalidate();
@@ -157,6 +163,17 @@ export function CashPage() {
             <h2>Abrir caixa</h2>
           </div>
           <label className="field">
+            <span>Terminal / caixa</span>
+            <input
+              value={terminal}
+              placeholder="Caixa 01"
+              maxLength={40}
+              onChange={(e) => setTerminalName(e.target.value)}
+              onBlur={(e) => setTerminalName(setTerminal(e.target.value))}
+            />
+            <small className="muted">Fica salvo neste dispositivo e acompanha as vendas do turno.</small>
+          </label>
+          <label className="field">
             <span>Fundo de troco inicial</span>
             <input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} />
           </label>
@@ -187,6 +204,7 @@ export function CashPage() {
               </article>
             </div>
             <p className="muted" style={{ marginTop: 10 }}>
+              {session.terminal ? `${session.terminal} · ` : ''}
               Aberto em {dateTime(session.openedAt)}
             </p>
 

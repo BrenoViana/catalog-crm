@@ -1,8 +1,10 @@
+import './SalesPage.css';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
 import { SaleReceipt } from '../components/SaleReceipt';
+import { SupervisorApprovalModal } from '../components/SupervisorApprovalModal';
 import {
   fiscalApi,
   salesApi,
@@ -12,6 +14,7 @@ import {
   type Sale,
 } from '../lib/api-client';
 import { brl, dateTime, paymentLabel, round2, toNumber } from '../lib/format';
+import { useAuthStore } from '../store/authStore';
 
 const REFUND_METHODS: PaymentMethod[] = ['DINHEIRO', 'PIX', 'DEBITO', 'CREDITO'];
 
@@ -169,6 +172,10 @@ export function SalesPage() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [returning, setReturning] = useState(false);
+  const permissions = useAuthStore((s) => s.permissions);
+  const canCancel = permissions.includes('sales.cancel');
+  // Sem a permissão, o cancelamento passa por liberação de supervisor.
+  const [askCancel, setAskCancel] = useState(false);
 
   const sales = useQuery({ queryKey: ['sales'], queryFn: () => salesApi.list() });
   const store = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
@@ -179,7 +186,8 @@ export function SalesPage() {
   });
 
   const cancel = useMutation({
-    mutationFn: (id: string) => salesApi.cancel(id, 'Cancelada pelo operador'),
+    mutationFn: ({ id, grant }: { id: string; grant?: string }) =>
+      salesApi.cancel(id, 'Cancelada pelo operador', grant),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -345,9 +353,17 @@ export function SalesPage() {
                     <button
                       className="danger-button"
                       disabled={cancel.isPending}
-                      onClick={() => cancel.mutate(detail.data!.id)}
+                      onClick={() =>
+                        canCancel
+                          ? cancel.mutate({ id: detail.data!.id })
+                          : setAskCancel(true)
+                      }
                     >
-                      {cancel.isPending ? 'Cancelando…' : 'Cancelar venda (estorna estoque)'}
+                      {cancel.isPending
+                        ? 'Cancelando…'
+                        : canCancel
+                          ? 'Cancelar venda (estorna estoque)'
+                          : 'Cancelar venda (pede liberação)'}
                     </button>
                   </>
                 ) : null}
@@ -361,6 +377,21 @@ export function SalesPage() {
           ) : null}
         </section>
       </div>
+
+      {askCancel && detail.data ? (
+        <SupervisorApprovalModal
+          permission="sales.cancel"
+          title="Liberar cancelamento de venda"
+          description={`Cancelar a venda #${detail.data.number} (${brl(
+            detail.data.total,
+          )}) estorna estoque e caixa. Um supervisor precisa autorizar.`}
+          onClose={() => setAskCancel(false)}
+          onApproved={(token) => {
+            setAskCancel(false);
+            cancel.mutate({ id: detail.data!.id, grant: token });
+          }}
+        />
+      ) : null}
 
       {returning && detail.data ? (
         <ReturnModal

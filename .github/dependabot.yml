@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    target-branch: Dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -10,8 +11,14 @@ updates:
         dependency-type: development
       production-dependencies:
         dependency-type: production
+    ignore:
+      # TypeScript 7 é o compilador nativo (port em Go): migração deliberada,
+      # não bump automático. Remover quando a migração for feita.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: Dev
     schedule:
       interval: weekly

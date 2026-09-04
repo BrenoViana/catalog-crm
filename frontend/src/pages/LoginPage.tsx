@@ -1,7 +1,8 @@
+import './LoginPage.css';
 import { FormEvent, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../store/authStore';
+import { homePathFor, useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 import { authApi, storeSettingsApi } from '../lib/api-client';
 
@@ -40,8 +41,9 @@ export function LoginPage() {
 
     try {
       const response = await authApi.login({ username, password });
-      setAuth(response.access_token, response.user);
-      navigate('/dashboard');
+      setAuth(response.access_token, response.user, response.permissions);
+      // Cada usuário cai na primeira tela que suas permissões abrem.
+      navigate(homePathFor(response.permissions));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao fazer login');
     } finally {

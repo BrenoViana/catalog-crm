@@ -4,8 +4,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role, SaleStatus } from '@prisma/client';
+import { Prisma, SaleStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AccessService } from '../access/access.service';
+import { AuthorizationService } from '../access/authorization.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { CancelSaleDto } from './dto/cancel-sale.dto';
@@ -24,6 +26,8 @@ export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fiscal: FiscalService,
+    private readonly access: AccessService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   list(params: { status?: string; take?: number }) {
@@ -68,11 +72,7 @@ export class SalesService {
     return sale;
   }
 
-  async create(
-    dto: CreateSaleDto,
-    operatorId: string,
-    operatorRole: Role = Role.OPERADOR,
-  ) {
+  async create(dto: CreateSaleDto, operatorId: string, grantToken?: string) {
     if (!operatorId) throw new BadRequestException('Operador nao identificado.');
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
@@ -108,9 +108,19 @@ export class SalesService {
     const total = subtotal.minus(saleDiscount);
     if (total.lt(0)) throw new BadRequestException('Desconto maior que o total.');
 
-    // Politica de desconto: um OPERADOR nao pode ultrapassar o teto (em %) da
-    // loja no desconto total da venda (itens + venda). GERENTE/ADMIN sem teto.
-    if (operatorRole === Role.OPERADOR) {
+    // Politica de desconto: quem nao tem "sales.discountOverride" respeita o
+    // teto (em %) da loja — a menos que um supervisor libere na hora.
+    let discountApprover: string | null = null;
+    let mayOverride = await this.access.can(operatorId, 'sales.discountOverride');
+    if (!mayOverride) {
+      discountApprover = this.authorization.consume(
+        grantToken,
+        operatorId,
+        'sales.discountOverride',
+      );
+      mayOverride = !!discountApprover;
+    }
+    if (!mayOverride) {
       const gross = lines.reduce((acc, l) => acc.plus(l.unitPrice.mul(l.qty)), D(0));
       if (gross.gt(0)) {
         const settings = await this.prisma.storeSettings.findFirst({
@@ -122,7 +132,7 @@ export class SalesService {
           throw new BadRequestException(
             `Desconto de ${pct.toFixed(1)}% excede o limite de ${limit.toFixed(
               0,
-            )}% do operador. Peca liberacao a um gerente.`,
+            )}% da loja. Peca a liberacao de um supervisor.`,
           );
         }
       }
@@ -186,6 +196,7 @@ export class SalesService {
           discount: saleDiscount,
           total,
           note: dto.note,
+          terminal: dto.terminal?.trim() || null,
           customerId: dto.customerId ?? null,
           operatorId,
           cashSessionId: openSession?.id ?? null,
@@ -263,6 +274,18 @@ export class SalesService {
       return sale;
     });
 
+    if (discountApprover) {
+      await this.authorization.record({
+        action: 'sales.discountOverride',
+        permissionKey: 'sales.discountOverride',
+        actorId: operatorId,
+        approverId: discountApprover,
+        targetType: 'Sale',
+        targetId: sale.id,
+        detail: { number: sale.number, total: String(total), discount: String(saleDiscount) },
+      });
+    }
+
     // Emissao fiscal assincrona: o resultado (AUTORIZADA/REJEITADA) fica no
     // proprio documento; uma falha aqui nunca invalida a venda ja concluida.
     void this.fiscal.emitForSale(sale.id).catch((err) => {
@@ -276,7 +299,12 @@ export class SalesService {
     return sale;
   }
 
-  async cancel(id: string, dto: CancelSaleDto, operatorId: string) {
+  async cancel(
+    id: string,
+    dto: CancelSaleDto,
+    operatorId: string,
+    approverId?: string,
+  ) {
     const sale = await this.prisma.sale.findUnique({
       where: { id },
       include: {
@@ -346,6 +374,16 @@ export class SalesService {
       });
     });
 
+    await this.authorization.record({
+      action: 'sales.cancel',
+      permissionKey: 'sales.cancel',
+      actorId: operatorId,
+      approverId,
+      targetType: 'Sale',
+      targetId: sale.id,
+      detail: { number: sale.number, total: String(sale.total), reason: dto.reason },
+    });
+
     // Cancela a NFC-e junto ao provedor (se ja autorizada) ou apenas marca o
     // documento; roda apos o commit para nao misturar chamada externa com a tx.
     if (sale.fiscalDocument) {
@@ -379,7 +417,12 @@ export class SalesService {
    * venda original: repoe estoque, registra o SaleReturn e, se o reembolso for
    * em dinheiro e houver caixa aberto do operador, langa uma sangria.
    */
-  async createReturn(saleId: string, dto: CreateReturnDto, operatorId: string) {
+  async createReturn(
+    saleId: string,
+    dto: CreateReturnDto,
+    operatorId: string,
+    approverId?: string,
+  ) {
     const sale = await this.prisma.sale.findUnique({
       where: { id: saleId },
       include: { items: true, returns: { include: { items: true } } },
@@ -431,7 +474,7 @@ export class SalesService {
 
     const total = lines.reduce((acc, l) => acc.plus(l.total), D(0));
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RETURN_NUMBER_LOCK})`;
 
       const openSession = await tx.cashSession.findFirst({
@@ -501,5 +544,17 @@ export class SalesService {
       // escopo do provedor atual. O documento da venda original nao muda.
       return saleReturn;
     });
+
+    await this.authorization.record({
+      action: 'sales.return',
+      permissionKey: 'sales.return',
+      actorId: operatorId,
+      approverId,
+      targetType: 'SaleReturn',
+      targetId: created.id,
+      detail: { number: created.number, saleNumber: sale.number, total: String(total) },
+    });
+
+    return created;
   }
 }

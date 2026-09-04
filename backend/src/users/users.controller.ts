@@ -1,9 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Role } from '@prisma/client';
-import { Roles } from '../common/roles.decorator';
+import { RequirePermissions } from '../common/permissions.decorator';
 
-@Roles(Role.GERENTE)
+@RequirePermissions('users.manage')
 @Controller('users')
 export class UsersController {
   constructor(private readonly prisma: PrismaService) {}
