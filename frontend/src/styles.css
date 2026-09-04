@@ -267,7 +267,7 @@ h2 {
 .sidebar {
   width: 260px;
   flex-shrink: 0;
-  height: 100vh;
+  height: 100dvh;
   position: sticky;
   top: 0;
   align-self: flex-start;
@@ -277,9 +277,9 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 22px;
-  /* A sidebar fica presa na viewport sozinha; se marca + menu + rodapé
-     passarem da altura, tudo rola junto aqui dentro. */
-  overflow-y: auto;
+  /* Marca no topo e rodapé no fim ficam sempre visíveis; só a lista de
+     navegação rola quando não cabe (ver .nav-menu). */
+  overflow: hidden;
 }
 
 /* Botão sanduíche — fixo no canto, sempre acessível. */
@@ -313,6 +313,7 @@ h2 {
 .nav-collapsed .main-content { padding-top: 64px; }
 
 .brand-box {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -335,6 +336,10 @@ h2 {
   align-content: start;
   margin: 0 -4px;
   padding: 0 4px;
+  /* Ocupa o espaço livre entre a marca e o rodapé e rola por dentro. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .nav-item,
@@ -379,8 +384,11 @@ h2 {
 }
 
 .sidebar-footer {
-  /* Logo abaixo do menu (acompanha o restante do menu), não colado no rodapé
-     da viewport. A sidebar inteira é que fica fixa. */
+  /* Fica no mesmo fluxo do menu (parte da coluna da sidebar), mas ancorado
+     no rodapé por conta própria: a lista de navegação rola e ele não sai
+     da vista. */
+  flex-shrink: 0;
+  margin-top: auto;
   display: grid;
   gap: 10px;
   padding-top: 12px;
