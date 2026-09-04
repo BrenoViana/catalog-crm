@@ -1,9 +1,10 @@
-/* Frente de caixa (PDV): busca de produtos, carrinho e pagamento.
-   Coluna esquerda = busca de produtos + checkout (subtotal → total → pagamento);
-   coluna direita = carrinho (lista de itens). */
+/* Frente de caixa (PDV).
+   Coluna esquerda (larga) = busca de produtos + checkout
+     (Total → Desconto na venda → Cliente → Pagamento → Finalizar).
+   Coluna direita = carrinho (itens) + Subtotal no rodapé. */
 .pdv-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -14,24 +15,40 @@
   gap: 20px;
   min-width: 0;
 }
+/* Produtos e checkout ocupam toda a largura da coluna esquerda. */
+.pdv-catalog > .panel {
+  width: 100%;
+}
 
-.pdv-checkout,
+/* O carrinho (item da grade) não estica na altura da linha. */
 .pdv-cart {
   align-self: start;
   min-width: 0;
 }
 
-/* No checkout o subtotal e os descontos vêm logo acima do Total; a régua do
-   .cart-summary (global) separa o detalhamento do TOTAL. */
-.pdv-checkout .cart-totals {
-  padding-top: 0;
-}
+/* Total abre o painel de checkout: sem régua no topo (a borda do painel já
+   separa) e destacado. */
 .pdv-checkout .cart-summary {
-  margin-top: 4px;
-  margin-bottom: 16px;
+  border-top: none;
+  padding-top: 0;
+  margin-bottom: 14px;
 }
 .pdv-checkout .cart-summary strong {
   font-size: 1.6rem;
+}
+.pdv-checkout .cart-totals {
+  padding-top: 0;
+}
+
+/* Subtotal no rodapé do carrinho, separado da lista por uma régua. */
+.cart-subtotal {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.cart-subtotal .cart-totals-row:first-child {
+  font-weight: 600;
+  color: var(--text-strong);
 }
 
 .pdv-shortcuts {
