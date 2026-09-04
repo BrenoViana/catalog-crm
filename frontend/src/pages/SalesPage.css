@@ -1,0 +1,35 @@
+/* Histórico de vendas: bloco de status da NFC-e e devolução parcial. */
+.fiscal-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+}
+.fiscal-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+.fiscal-key {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  word-break: break-all;
+  margin: 0;
+}
+
+.returns-box { margin-top: 8px; }
+.return-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 10px; }
+.return-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.return-row small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+.return-row-refund { min-width: 88px; text-align: right; }

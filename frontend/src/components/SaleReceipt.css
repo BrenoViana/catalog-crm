@@ -1,0 +1,41 @@
+/* Recibo / DANFE-NFC-e: fica fora do fluxo visual e só é pintado na impressão. */
+.receipt {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 72mm;
+  color: #000;
+  background: #fff;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.receipt-center { text-align: center; }
+.receipt-strong { font-weight: 700; }
+.receipt-muted { color: #000; font-size: 11px; }
+.receipt-total { font-size: 14px; }
+.receipt-rule { border-top: 1px dashed #000; margin: 6px 0; }
+.receipt-row { display: flex; justify-content: space-between; gap: 12px; }
+.receipt-items { width: 100%; border-collapse: collapse; }
+.receipt-items td { vertical-align: top; padding: 2px 0; }
+.receipt-items-desc { padding-right: 8px; }
+.receipt-items-total { text-align: right; white-space: nowrap; }
+.receipt-key {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  word-break: break-all;
+  margin: 4px 0;
+}
+
+@media print {
+  @page { size: 72mm auto; margin: 3mm; }
+  body { background: #fff; }
+  body * { visibility: hidden; }
+  #receipt-print, #receipt-print * { visibility: visible; }
+  #receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}

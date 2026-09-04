@@ -1,3 +1,4 @@
+import './DashboardPage.css';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';

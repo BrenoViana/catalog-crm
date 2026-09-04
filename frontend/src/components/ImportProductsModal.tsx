@@ -1,3 +1,4 @@
+import './ImportProductsModal.css';
 import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { productsApi, type ImportResult } from '../lib/api-client';

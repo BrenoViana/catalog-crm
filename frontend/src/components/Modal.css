@@ -1,0 +1,72 @@
+/* Estilos do componente Modal (compartilhado por vários modais da aplicação). */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 8, 17, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+.modal-card {
+  width: 100%;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.modal-close:hover { background: var(--accent-soft); border-color: var(--accent-border); }
+
+.modal-body {
+  padding: 20px 22px;
+  overflow-y: auto;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 20px;
+  border-top: 1px solid var(--border);
+}
+.modal-foot .spacer { margin-right: auto; }
+
+.modal-body textarea.field-input { resize: vertical; }
+.modal-body code {
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+}
+
+@media (max-width: 560px) {
+  .modal-backdrop { padding: 12px; }
+  .modal-foot { flex-wrap: wrap; }
+}

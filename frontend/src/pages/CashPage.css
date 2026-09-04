@@ -1,0 +1,3 @@
+/* Caixa: leitura X do turno atual e relatório Z do fechamento. */
+.turn-report { display: grid; gap: 4px; }
+.turn-report .stats-grid { margin-top: 4px; }
