@@ -356,6 +356,7 @@ export function PdvPage() {
       ) : null}
 
       <div className="pdv-layout">
+        <div className="pdv-catalog">
         <section className="panel">
           <div className="panel-header">
             <h2>Produtos</h2>
@@ -465,7 +466,10 @@ export function PdvPage() {
               ) : null}
             </label>
           </div>
+        </section>
+        </div>
 
+        <section className="panel pdv-checkout">
           <div className="cart-summary">
             <span>Total</span>
             <strong>{brl(total)}</strong>

@@ -1,9 +1,32 @@
-/* Frente de caixa (PDV): busca de produtos, carrinho e pagamento. */
+/* Frente de caixa (PDV): busca de produtos, carrinho e pagamento.
+   Coluna esquerda = catálogo + carrinho (empilhados); direita = checkout. */
 .pdv-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
+}
+
+.pdv-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.pdv-checkout {
+  align-self: start;
+}
+
+/* O Total abre o painel de checkout — sem régua no topo (a borda do painel
+   já separa) e maior que na versão de dentro do carrinho. */
+.pdv-checkout .cart-summary {
+  border-top: none;
+  padding-top: 0;
+  margin-bottom: 16px;
+}
+.pdv-checkout .cart-summary strong {
+  font-size: 1.6rem;
 }
 
 .pdv-shortcuts {
@@ -122,4 +145,5 @@
 
 @media (max-width: 1024px) {
   .pdv-layout { grid-template-columns: 1fr; }
+  .pdv-catalog { gap: 16px; }
 }
