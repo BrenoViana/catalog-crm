@@ -10,42 +10,43 @@ import { SalesPage } from './pages/SalesPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { CashPage } from './pages/CashPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { atLeast, homePath, type Role } from './lib/roles';
-import { useAuthStore } from './store/authStore';
+import { homePathFor, useAuthStore } from './store/authStore';
 
-function Private({ children }: { children: ReactNode }) {
-  const isAuthenticated = useAuthStore((state) => !!state.token);
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
-}
-
-/** Exige autenticacao E papel minimo; quem nao tem cai na sua tela inicial. */
-function Guard({ min, children }: { min: Role; children: ReactNode }) {
+/**
+ * Exige autenticação E a permissão da tela. Quem não tem cai na própria tela
+ * inicial. É só a casca: o backend revalida cada requisição.
+ */
+function Guard({ need, children }: { need: string; children: ReactNode }) {
   const token = useAuthStore((state) => !!state.token);
-  const role = useAuthStore((state) => state.user?.role);
+  const permissions = useAuthStore((state) => state.permissions);
   if (!token) return <Navigate to="/login" replace />;
-  if (!atLeast(role, min)) return <Navigate to={homePath(role)} replace />;
+  if (!permissions.includes(need)) {
+    return <Navigate to={homePathFor(permissions)} replace />;
+  }
   return <>{children}</>;
 }
 
 function App() {
   const isAuthenticated = useAuthStore((state) => !!state.token);
-  const role = useAuthStore((state) => state.user?.role);
+  const permissions = useAuthStore((state) => state.permissions);
 
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/pdv" element={<Private><PdvPage /></Private>} />
-      <Route path="/dashboard" element={<Guard min="GERENTE"><DashboardPage /></Guard>} />
-      <Route path="/produtos" element={<Private><ProductsPage /></Private>} />
-      <Route path="/categorias" element={<Guard min="GERENTE"><CategoriesPage /></Guard>} />
-      <Route path="/estoque" element={<Private><InventoryPage /></Private>} />
-      <Route path="/vendas" element={<Private><SalesPage /></Private>} />
-      <Route path="/clientes" element={<Guard min="GERENTE"><CustomersPage /></Guard>} />
-      <Route path="/caixa" element={<Private><CashPage /></Private>} />
-      <Route path="/configuracoes" element={<Guard min="ADMIN"><SettingsPage /></Guard>} />
+      <Route path="/pdv" element={<Guard need="sales.create"><PdvPage /></Guard>} />
+      <Route path="/dashboard" element={<Guard need="dashboard.view"><DashboardPage /></Guard>} />
+      <Route path="/produtos" element={<Guard need="products.view"><ProductsPage /></Guard>} />
+      <Route path="/categorias" element={<Guard need="categories.manage"><CategoriesPage /></Guard>} />
+      <Route path="/estoque" element={<Guard need="inventory.view"><InventoryPage /></Guard>} />
+      <Route path="/vendas" element={<Guard need="sales.view"><SalesPage /></Guard>} />
+      <Route path="/clientes" element={<Guard need="customers.view"><CustomersPage /></Guard>} />
+      <Route path="/caixa" element={<Guard need="cash.operate"><CashPage /></Guard>} />
+      <Route path="/configuracoes" element={<Guard need="settings.manage"><SettingsPage /></Guard>} />
       <Route
         path="*"
-        element={<Navigate to={isAuthenticated ? homePath(role) : '/login'} replace />}
+        element={
+          <Navigate to={isAuthenticated ? homePathFor(permissions) : '/login'} replace />
+        }
       />
     </Routes>
   );

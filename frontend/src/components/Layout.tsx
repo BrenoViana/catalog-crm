@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { storeSettingsApi } from '../lib/api-client';
-import { atLeast, type Role } from '../lib/roles';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 
@@ -19,27 +18,27 @@ function initialSidebarOpen(): boolean {
   return typeof window === 'undefined' || window.innerWidth > 900;
 }
 
-type NavLeaf = { to: string; label: string; min?: Role };
+type NavLeaf = { to: string; label: string; need?: string };
 type NavGroup = { group: string; items: NavLeaf[] };
 type NavEntry = NavLeaf | NavGroup;
 
 const nav: NavEntry[] = [
-  { to: '/dashboard', label: 'Dashboard', min: 'GERENTE' },
+  { to: '/dashboard', label: 'Dashboard', need: 'dashboard.view' },
   {
     group: 'Caixa',
     items: [
-      { to: '/pdv', label: 'Nova venda' },
-      { to: '/vendas', label: 'Vendas' },
-      { to: '/caixa', label: 'Abertura de caixa' },
+      { to: '/pdv', label: 'Nova venda', need: 'sales.create' },
+      { to: '/vendas', label: 'Vendas', need: 'sales.view' },
+      { to: '/caixa', label: 'Abertura de caixa', need: 'cash.operate' },
     ],
   },
   {
     group: 'Cadastros',
     items: [
-      { to: '/produtos', label: 'Produtos' },
-      { to: '/categorias', label: 'Categorias', min: 'GERENTE' },
-      { to: '/clientes', label: 'Clientes', min: 'GERENTE' },
-      { to: '/estoque', label: 'Estoque' },
+      { to: '/produtos', label: 'Produtos', need: 'products.view' },
+      { to: '/categorias', label: 'Categorias', need: 'categories.manage' },
+      { to: '/clientes', label: 'Clientes', need: 'customers.view' },
+      { to: '/estoque', label: 'Estoque', need: 'inventory.view' },
     ],
   },
 ];
@@ -61,7 +60,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
-  const role = user?.role;
+  const permissions = useAuthStore((state) => state.permissions);
 
   const theme = useThemeStore((state) => state.theme);
   const toggleTheme = useThemeStore((state) => state.toggle);
@@ -88,7 +87,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const logo = theme === 'light' ? store.data?.logoLightUrl : store.data?.logoDarkUrl;
   const storeName = store.data?.tradeName || store.data?.legalName || 'Catalog';
 
-  const visible = (item: NavLeaf) => !item.min || atLeast(role, item.min);
+  const visible = (item: NavLeaf) => !item.need || permissions.includes(item.need);
 
   const entries = nav
     .map((entry) =>
@@ -158,7 +157,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <span>Trocar</span>
           </button>
 
-          {atLeast(role, 'ADMIN') && (
+          {permissions.includes('settings.manage') && (
             <NavLink
               to="/configuracoes"
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
@@ -170,7 +169,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <div className="user-box">
             <div>
               <strong>{user?.name ?? 'Usuário'}</strong>
-              <small>{role ?? ''}</small>
+              <small>{user?.roleName ?? user?.role ?? ''}</small>
             </div>
             <button className="footer-action" onClick={handleLogout}>
               Sair

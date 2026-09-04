@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -37,12 +37,12 @@ export class CustomersService {
 
   /**
    * GERENTE/ADMIN veem a lista completa, enriquecida com o resumo de compras e
-   * o segmento de cada cliente. OPERADOR so recebe resultado ao informar um
-   * termo de busca (>= 3 caracteres) e com campos reduzidos — evita expor a
-   * base inteira de clientes (CPF, e-mail, nascimento) no PDV.
+   * o segmento de cada cliente. Quem NAO tem "customers.manage" so recebe
+   * resultado ao informar um termo de busca (>= 3 caracteres) e com campos
+   * reduzidos — evita expor a base inteira (CPF, e-mail, nascimento) no PDV.
    */
-  async findAll(search: string | undefined, role: Role) {
-    const isManager = role === Role.ADMIN || role === Role.GERENTE;
+  async findAll(search: string | undefined, fullAccess: boolean) {
+    const isManager = fullAccess;
     const term = (search ?? '').trim();
 
     if (!isManager && term.length < 3) return [];

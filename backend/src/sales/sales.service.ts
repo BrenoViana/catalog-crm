@@ -4,8 +4,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role, SaleStatus } from '@prisma/client';
+import { Prisma, SaleStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AccessService } from '../access/access.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { CancelSaleDto } from './dto/cancel-sale.dto';
@@ -24,6 +25,7 @@ export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fiscal: FiscalService,
+    private readonly access: AccessService,
   ) {}
 
   list(params: { status?: string; take?: number }) {
@@ -68,11 +70,7 @@ export class SalesService {
     return sale;
   }
 
-  async create(
-    dto: CreateSaleDto,
-    operatorId: string,
-    operatorRole: Role = Role.OPERADOR,
-  ) {
+  async create(dto: CreateSaleDto, operatorId: string) {
     if (!operatorId) throw new BadRequestException('Operador nao identificado.');
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
@@ -108,9 +106,9 @@ export class SalesService {
     const total = subtotal.minus(saleDiscount);
     if (total.lt(0)) throw new BadRequestException('Desconto maior que o total.');
 
-    // Politica de desconto: um OPERADOR nao pode ultrapassar o teto (em %) da
-    // loja no desconto total da venda (itens + venda). GERENTE/ADMIN sem teto.
-    if (operatorRole === Role.OPERADOR) {
+    // Politica de desconto: quem nao tem "sales.discountOverride" respeita o
+    // teto (em %) da loja sobre o desconto total da venda (itens + venda).
+    if (!(await this.access.can(operatorId, 'sales.discountOverride'))) {
       const gross = lines.reduce((acc, l) => acc.plus(l.unitPrice.mul(l.qty)), D(0));
       if (gross.gt(0)) {
         const settings = await this.prisma.storeSettings.findFirst({
@@ -122,7 +120,7 @@ export class SalesService {
           throw new BadRequestException(
             `Desconto de ${pct.toFixed(1)}% excede o limite de ${limit.toFixed(
               0,
-            )}% do operador. Peca liberacao a um gerente.`,
+            )}% da loja. Peca liberacao a quem tem permissao para passar do teto.`,
           );
         }
       }

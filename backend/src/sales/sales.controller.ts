@@ -6,34 +6,36 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { CurrentUser, type AuthUser } from '../common/current-user.decorator';
+import { CurrentUser } from '../common/current-user.decorator';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { CancelSaleDto } from './dto/cancel-sale.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
-import { Role } from '@prisma/client';
-import { Roles } from '../common/roles.decorator';
+import { RequirePermissions } from '../common/permissions.decorator';
 
 @Controller('sales')
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
+  @RequirePermissions('sales.view')
   @Get()
   list(@Query('status') status?: string) {
     return this.salesService.list({ status });
   }
 
+  @RequirePermissions('sales.view')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.salesService.findOne(id);
   }
 
+  @RequirePermissions('sales.create')
   @Post()
-  create(@Body() dto: CreateSaleDto, @CurrentUser() user: AuthUser) {
-    return this.salesService.create(dto, user.userId, user.role);
+  create(@Body() dto: CreateSaleDto, @CurrentUser('userId') userId: string) {
+    return this.salesService.create(dto, userId);
   }
 
-  @Roles(Role.GERENTE)
+  @RequirePermissions('sales.cancel')
   @Post(':id/cancel')
   cancel(
     @Param('id') id: string,
@@ -43,11 +45,13 @@ export class SalesController {
     return this.salesService.cancel(id, dto, userId);
   }
 
+  @RequirePermissions('sales.view')
   @Get(':id/returns')
   listReturns(@Param('id') id: string) {
     return this.salesService.listReturns(id);
   }
 
+  @RequirePermissions('sales.return')
   @Post(':id/returns')
   createReturn(
     @Param('id') id: string,
