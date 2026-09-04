@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, Dev]
+  pull_request:
+    branches: [main, Dev]
+
+# Cancela execucoes antigas do mesmo ref quando chega um push novo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: Prisma client
+        working-directory: backend
+        run: |
+          cp .env.example .env
+          npx prisma generate
+
+      - name: Backend build
+        run: npm run build -w backend
+
+      - name: Frontend build
+        run: npm run build -w frontend
