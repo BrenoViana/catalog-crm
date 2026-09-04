@@ -6,7 +6,7 @@ import { atLeast, type Role } from '../lib/roles';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
 
-const SIDEBAR_KEY = 'crm-sidebar';
+const SIDEBAR_KEY = 'catalog.sidebar';
 
 function initialSidebarOpen(): boolean {
   try {
