@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type Theme = 'dark' | 'light';
 
-const STORAGE_KEY = 'crm-theme';
+const STORAGE_KEY = 'catalog.theme';
 
 function readStored(): Theme | null {
   try {

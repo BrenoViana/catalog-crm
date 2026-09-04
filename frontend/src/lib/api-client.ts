@@ -6,7 +6,7 @@ interface FetchOptions extends RequestInit {
 
 export class ApiClient {
   private static getAuthToken(): string | null {
-    return localStorage.getItem('crm-token');
+    return localStorage.getItem('catalog.token');
   }
 
   private static getHeaders(): Record<string, string> {
@@ -23,8 +23,8 @@ export class ApiClient {
 
     if (!response.ok) {
       if (response.status === 401) {
-        localStorage.removeItem('crm-token');
-        localStorage.removeItem('crm-user');
+        localStorage.removeItem('catalog.token');
+        localStorage.removeItem('catalog.user');
         if (!location.pathname.startsWith('/login')) location.href = '/login';
       }
       const error = await response.json().catch(() => ({}));

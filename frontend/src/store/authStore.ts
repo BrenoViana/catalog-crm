@@ -8,23 +8,23 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token: localStorage.getItem('crm-token'),
+  token: localStorage.getItem('catalog.token'),
   user: (() => {
     try {
-      const raw = localStorage.getItem('crm-user');
+      const raw = localStorage.getItem('catalog.user');
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
   })(),
   setAuth: (token, user) => {
-    localStorage.setItem('crm-token', token);
-    localStorage.setItem('crm-user', JSON.stringify(user));
+    localStorage.setItem('catalog.token', token);
+    localStorage.setItem('catalog.user', JSON.stringify(user));
     set({ token, user });
   },
   logout: () => {
-    localStorage.removeItem('crm-token');
-    localStorage.removeItem('crm-user');
+    localStorage.removeItem('catalog.token');
+    localStorage.removeItem('catalog.user');
     set({ token: null, user: null });
   },
 }));

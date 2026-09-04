@@ -1,7 +1,7 @@
 {
   "name": "catalog-crm",
   "version": "1.0.0",
-  "description": "Sistema executivo de CRM com catalogação de produtos e gerenciamento de vendas",
+  "description": "Catálogo de produtos e PDV de balcão para varejo B2C — backend NestJS + frontend React",
   "private": true,
   "scripts": {
     "dev": "npm run dev -w backend & npm run dev -w frontend",
@@ -19,9 +19,11 @@
     "frontend"
   ],
   "keywords": [
-    "crm",
-    "sales",
-    "catalog",
+    "pdv",
+    "ponto-de-venda",
+    "varejo",
+    "catalogo",
+    "nfce",
     "nestjs",
     "react",
     "postgresql",
