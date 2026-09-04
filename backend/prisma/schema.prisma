@@ -50,6 +50,17 @@ enum PaymentMethod {
   OUTRO
 }
 
+/// Ciclo de vida de um pagamento. Dinheiro nasce CONFIRMADO; meios
+/// eletronicos passam pelo PaymentGateway antes de virar confirmado.
+enum PaymentStatus {
+  PENDENTE
+  PROCESSANDO
+  AUTORIZADO
+  CONFIRMADO
+  NEGADO
+  ESTORNADO
+}
+
 enum FiscalStatus {
   NAO_EMITIDA
   PENDENTE
@@ -103,6 +114,8 @@ model User {
   cashMovements  CashMovement[]
   saleReturns    SaleReturn[]
   overrides      UserPermission[]
+  auditActions   AuditLog[]       @relation("AuditActor")
+  auditApprovals AuditLog[]       @relation("AuditApprover")
 
   @@index([roleId])
 }
@@ -356,7 +369,39 @@ model Payment {
   installments Int?
   createdAt    DateTime      @default(now())
 
+  // Costura de pagamentos: o que o gateway devolve fica aqui.
+  status            PaymentStatus @default(CONFIRMADO)
+  provider          String?
+  externalId        String?
+  authorizationCode String?
+  /// Payload do QR (Pix) para o cliente pagar.
+  qrCode            String?
+  rejectionReason   String?
+  authorizedAt      DateTime?
+  refundedAt        DateTime?
+
   @@index([saleId])
+  @@index([status])
+}
+
+/// Trilha de auditoria de operacoes sensiveis: quem fez, quem liberou e sobre o que.
+model AuditLog {
+  id            String   @id @default(uuid())
+  action        String
+  permissionKey String?
+  actorId       String
+  actor         User     @relation("AuditActor", fields: [actorId], references: [id])
+  /// Supervisor que autorizou na hora, quando a acao exigiu liberacao.
+  approverId    String?
+  approver      User?    @relation("AuditApprover", fields: [approverId], references: [id])
+  targetType    String?
+  targetId      String?
+  detail        Json?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
 }
 
 /// Devolucao (total ou parcial) de itens de uma venda ja concluida. Nao altera

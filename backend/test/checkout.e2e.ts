@@ -51,12 +51,18 @@ async function main() {
   const base = `http://127.0.0.1:${port}/api`;
 
   let token = '';
-  const api = async (method: string, url: string, body?: unknown) => {
+  const api = async (
+    method: string,
+    url: string,
+    body?: unknown,
+    extraHeaders?: Record<string, string>,
+  ) => {
     const res = await fetch(base + url, {
       method,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(extraHeaders ?? {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -476,6 +482,106 @@ async function main() {
       assert.equal(putSetting.status, 200, 'PUT de configuracao deveria responder 200');
       assert.equal(Number(changed.value), 18);
       assert.equal(invalid.status, 400, 'valor fora do intervalo deveria ser recusado');
+    });
+
+    // 7l) Supervisao: o operador esbarra no teto e um gerente libera na hora.
+    const adminToken3 = token;
+    const opLogin2 = await api('POST', '/auth/login', {
+      username: 'operador',
+      password: 'operador',
+    });
+    token = opLogin2.body.access_token;
+
+    const blocked = await api('POST', '/sales', {
+      items: [{ productId: product2Id, quantity: 1, discount: 3 }], // 30%
+      payments: [{ method: 'PIX', amount: 7 }],
+    });
+
+    // Credenciais erradas e auto-liberacao nao valem.
+    const badPass = await api('POST', '/access/authorize', {
+      username: 'gerente',
+      password: 'errada',
+      permission: 'sales.discountOverride',
+    });
+    const selfGrant = await api('POST', '/access/authorize', {
+      username: 'operador',
+      password: 'operador',
+      permission: 'sales.discountOverride',
+    });
+
+    const grant = await api('POST', '/access/authorize', {
+      username: 'gerente',
+      password: 'gerente',
+      permission: 'sales.discountOverride',
+      reason: 'cliente antigo, e2e',
+    });
+
+    const released = await api(
+      'POST',
+      '/sales',
+      {
+        items: [{ productId: product2Id, quantity: 1, discount: 3 }],
+        payments: [{ method: 'PIX', amount: 7 }],
+      },
+      { 'X-Authorization-Grant': grant.body?.token ?? '' },
+    );
+
+    // O mesmo vale nao serve duas vezes.
+    const reused = await api(
+      'POST',
+      '/sales',
+      {
+        items: [{ productId: product2Id, quantity: 1, discount: 3 }],
+        payments: [{ method: 'PIX', amount: 7 }],
+      },
+      { 'X-Authorization-Grant': grant.body?.token ?? '' },
+    );
+
+    // Vale para uma permissao que o operador nao tem: cancelar venda.
+    const cancelGrant = await api('POST', '/access/authorize', {
+      username: 'gerente',
+      password: 'gerente',
+      permission: 'sales.cancel',
+    });
+    const opCancel = await api(
+      'POST',
+      `/sales/${released.body?.id}/cancel`,
+      { reason: 'e2e supervisao' },
+      { 'X-Authorization-Grant': cancelGrant.body?.token ?? '' },
+    );
+
+    token = adminToken3;
+    check('supervisor libera desconto acima do teto (vale de uso unico)', () => {
+      assert.equal(blocked.status, 400, 'sem liberacao deveria barrar');
+      assert.equal(badPass.status, 401, 'senha errada deveria falhar');
+      assert.equal(selfGrant.status, 403, 'ninguem libera a si mesmo');
+      assert.equal(grant.status, 201);
+      assert.equal(grant.body.permission, 'sales.discountOverride');
+      assert.equal(released.status, 201, 'com o vale a venda deveria passar');
+      assert.equal(reused.status, 400, 'o vale nao pode ser reutilizado');
+    });
+    check('vale libera o operador a cancelar uma venda', () => {
+      assert.ok([200, 201].includes(opCancel.status));
+      assert.equal(opCancel.body.status, 'CANCELADA');
+    });
+
+    const audit = await api('GET', '/access/audit');
+    check('trilha de auditoria registra quem fez e quem liberou', () => {
+      assert.equal(audit.status, 200);
+      const override = audit.body.find(
+        (a: any) => a.action === 'sales.discountOverride',
+      );
+      assert.ok(override, 'sem registro de sales.discountOverride');
+      assert.equal(override.actor.username, 'operador');
+      assert.equal(override.approver.username, 'gerente');
+      const cancel = audit.body.find(
+        (a: any) => a.action === 'sales.cancel' && a.approver?.username === 'gerente',
+      );
+      assert.ok(cancel, 'sem registro do cancelamento liberado');
+      assert.ok(
+        audit.body.some((a: any) => a.action === 'authorization.grant'),
+        'sem registro da liberacao em si',
+      );
     });
 
     // 8) Cancelar a venda (caixa ainda aberto)
