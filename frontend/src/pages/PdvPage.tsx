@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { SaleReceipt } from '../components/SaleReceipt';
 import { CustomerFormModal, blankCustomerForm } from '../components/CustomerFormModal';
+import { SupervisorApprovalModal } from '../components/SupervisorApprovalModal';
 import {
   cashApi,
   customersApi,
@@ -73,7 +74,7 @@ function settlePayments(rows: PayRow[], total: number): number[] {
 export function PdvPage() {
   const queryClient = useQueryClient();
   const operatorName = useAuthStore((s) => s.user?.name);
-  const operatorRole = useAuthStore((s) => s.user?.role);
+  const permissions = useAuthStore((s) => s.permissions);
   const [terminal, setTerminalName] = useState(getTerminal);
   const [term, setTerm] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -84,6 +85,9 @@ export function PdvPage() {
   const [scanMiss, setScanMiss] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [quickAdd, setQuickAdd] = useState(false);
+  // Vale de supervisor obtido para esta venda (uso único, some ao finalizar).
+  const [askApproval, setAskApproval] = useState(false);
+  const [discountGrant, setDiscountGrant] = useState<{ token: string; by: string } | null>(null);
   const [justAdded, setJustAdded] = useState<{ id: string; name: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -124,9 +128,11 @@ export function PdvPage() {
     grossSubtotal > 0 ? ((grossSubtotal - total) / grossSubtotal) * 100 : 0;
   const discountLimit = store.data?.maxDiscountPercentOperator ?? null;
   const overDiscountLimit =
-    operatorRole === 'OPERADOR' &&
+    !permissions.includes('sales.discountOverride') &&
     discountLimit != null &&
     discountPct > discountLimit + 0.01;
+  // Com o vale na mão, a venda passa mesmo acima do teto.
+  const blockedByDiscount = overDiscountLimit && !discountGrant;
 
   const effective = useMemo(() => settlePayments(payments, total), [payments, total]);
   const paid = round2(effective.reduce((acc, v) => acc + v, 0));
@@ -233,7 +239,8 @@ export function PdvPage() {
 
   const sale = useMutation({
     mutationFn: () =>
-      salesApi.create({
+      salesApi.create(
+        {
         items: cart.map((l) => ({
           productId: l.product.id,
           quantity: l.quantity,
@@ -246,13 +253,16 @@ export function PdvPage() {
             installments: r.method === 'CREDITO' ? r.installments : undefined,
           }))
           .filter((p) => p.amount > 0),
-        discount: saleDisc > 0 ? round2(saleDisc) : undefined,
-        customerId: customerId || undefined,
-        terminal: terminal || undefined,
-      }),
+          discount: saleDisc > 0 ? round2(saleDisc) : undefined,
+          customerId: customerId || undefined,
+          terminal: terminal || undefined,
+        },
+        discountGrant?.token,
+      ),
     onSuccess: (created) => {
       setFeedback(`Venda #${created.number} concluída — ${brl(created.total)}`);
       setLastSale(created);
+      setDiscountGrant(null);
       resetSale();
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['cash'] });
@@ -266,7 +276,7 @@ export function PdvPage() {
     total > EPS &&
     paid + EPS >= total &&
     !nonCashOverpay &&
-    !overDiscountLimit &&
+    !blockedByDiscount &&
     !sale.isPending;
 
   const printReceipt = useCallback(() => {
@@ -405,11 +415,23 @@ export function PdvPage() {
           {sale.error instanceof Error ? sale.error.message : 'Erro ao finalizar a venda'}
         </div>
       ) : null}
-      {overDiscountLimit ? (
+      {blockedByDiscount ? (
         <div className="error-message">
           Desconto de {discountPct.toFixed(1)}% acima do limite de{' '}
-          {Number(discountLimit).toFixed(0)}% para o operador. Reduza o desconto ou peça
-          liberação a um gerente.
+          {Number(discountLimit).toFixed(0)}%. Reduza o desconto ou peça liberação.
+          <button
+            className="mini-button"
+            style={{ marginLeft: 12 }}
+            onClick={() => setAskApproval(true)}
+          >
+            Pedir liberação
+          </button>
+        </div>
+      ) : null}
+      {discountGrant ? (
+        <div className="success-message">
+          Desconto liberado por <strong>{discountGrant.by}</strong> — vale válido para
+          esta venda.
         </div>
       ) : null}
 
@@ -466,8 +488,8 @@ export function PdvPage() {
                   onChange={(e) => setSaleDiscount(e.target.value)}
                 />
                 {saleDisc > 0 ? <small className="muted">−{brl(saleDisc)}</small> : null}
-                {discountLimit != null && operatorRole === 'OPERADOR' ? (
-                  <small className="muted">Limite do operador: {Number(discountLimit).toFixed(0)}%</small>
+                {discountLimit != null && !permissions.includes('sales.discountOverride') ? (
+                  <small className="muted">Limite de desconto: {Number(discountLimit).toFixed(0)}%</small>
                 ) : null}
               </label>
             </div>
@@ -629,6 +651,21 @@ export function PdvPage() {
           </div>
         </section>
       </div>
+
+      {askApproval ? (
+        <SupervisorApprovalModal
+          permission="sales.discountOverride"
+          title="Liberar desconto acima do teto"
+          description={`O desconto de ${discountPct.toFixed(1)}% passa do limite de ${Number(
+            discountLimit,
+          ).toFixed(0)}%. Um supervisor precisa autorizar.`}
+          onClose={() => setAskApproval(false)}
+          onApproved={(token, by) => {
+            setDiscountGrant({ token, by });
+            setAskApproval(false);
+          }}
+        />
+      ) : null}
 
       {quickAdd ? (
         <CustomerFormModal

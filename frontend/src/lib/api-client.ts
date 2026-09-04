@@ -39,8 +39,16 @@ export class ApiClient {
   static get<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'GET' });
   }
-  static post<T>(endpoint: string, body?: unknown): Promise<T> {
-    return this.request<T>(endpoint, { method: 'POST', body: body ? JSON.stringify(body) : undefined });
+  static post<T>(
+    endpoint: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+      headers,
+    });
   }
   static patch<T>(endpoint: string, body?: unknown): Promise<T> {
     return this.request<T>(endpoint, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined });
@@ -365,15 +373,21 @@ export interface CreateReturnInput {
   refundMethod: PaymentMethod;
 }
 
+/** Vale de supervisor: viaja no header e vale para uma operação só. */
+const grantHeader = (grant?: string) =>
+  grant ? { 'X-Authorization-Grant': grant } : undefined;
+
 export const salesApi = {
   list: (status?: string) =>
     ApiClient.get<Sale[]>(`/sales${status ? `?status=${status}` : ''}`),
   get: (id: string) => ApiClient.get<Sale>(`/sales/${id}`),
-  create: (data: CreateSaleInput) => ApiClient.post<Sale>('/sales', data),
-  cancel: (id: string, reason: string) => ApiClient.post<Sale>(`/sales/${id}/cancel`, { reason }),
+  create: (data: CreateSaleInput, grant?: string) =>
+    ApiClient.post<Sale>('/sales', data, grantHeader(grant)),
+  cancel: (id: string, reason: string, grant?: string) =>
+    ApiClient.post<Sale>(`/sales/${id}/cancel`, { reason }, grantHeader(grant)),
   returns: (id: string) => ApiClient.get<SaleReturn[]>(`/sales/${id}/returns`),
-  createReturn: (id: string, data: CreateReturnInput) =>
-    ApiClient.post<SaleReturn>(`/sales/${id}/returns`, data),
+  createReturn: (id: string, data: CreateReturnInput, grant?: string) =>
+    ApiClient.post<SaleReturn>(`/sales/${id}/returns`, data, grantHeader(grant)),
 };
 
 // ---------------------------------------------------------------- Fiscal (NFC-e)
@@ -542,7 +556,41 @@ export const accessApi = {
     ApiClient.put(`/access/users/${id}/overrides`, { overrides }),
   setUserActive: (id: string, active: boolean) =>
     ApiClient.put(`/access/users/${id}/active`, { active }),
+
+  /** Pede a liberação de um supervisor para uma permissão específica. */
+  authorize: (data: {
+    username: string;
+    password: string;
+    permission: string;
+    reason?: string;
+  }) =>
+    ApiClient.post<{
+      token: string;
+      permission: string;
+      expiresInSeconds: number;
+      approver: { id: string; name: string };
+    }>('/access/authorize', data),
+
+  audit: (params?: { action?: string; take?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.action) q.set('action', params.action);
+    if (params?.take) q.set('take', String(params.take));
+    const qs = q.toString();
+    return ApiClient.get<AuditEntry[]>(`/access/audit${qs ? `?${qs}` : ''}`);
+  },
 };
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  permissionKey: string | null;
+  targetType: string | null;
+  targetId: string | null;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+  actor: { id: string; name: string; username: string };
+  approver: { id: string; name: string; username: string } | null;
+}
 
 // ---------------------------------------------------------------- Configuracoes do sistema
 export interface AppSettingRow {

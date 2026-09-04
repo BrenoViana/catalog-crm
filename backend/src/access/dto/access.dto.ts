@@ -61,3 +61,18 @@ export class SetUserActiveDto {
   @IsBoolean()
   active: boolean;
 }
+
+export class AuthorizeDto {
+  @IsString() @MinLength(1) @MaxLength(60)
+  username: string;
+
+  @IsString() @MinLength(1) @MaxLength(200)
+  password: string;
+
+  /** Permissao que o operador precisa para concluir a operacao. */
+  @IsString() @MinLength(3) @MaxLength(60)
+  permission: string;
+
+  @IsOptional() @IsString() @MaxLength(200)
+  reason?: string;
+}
