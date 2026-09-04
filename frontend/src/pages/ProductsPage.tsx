@@ -5,7 +5,6 @@ import { Modal } from '../components/Modal';
 import { ImportProductsModal } from '../components/ImportProductsModal';
 import { categoriesApi, productsApi, type Product } from '../lib/api-client';
 import { brl, num } from '../lib/format';
-import { atLeast } from '../lib/roles';
 import { useAuthStore } from '../store/authStore';
 
 interface ProductForm {
@@ -63,8 +62,8 @@ const toNumber = (v: string) => Number(String(v).replace(',', '.'));
 
 export function ProductsPage() {
   const queryClient = useQueryClient();
-  const role = useAuthStore((state) => state.user?.role);
-  const canEdit = atLeast(role, 'GERENTE');
+  const permissions = useAuthStore((state) => state.permissions);
+  const canEdit = permissions.includes('products.manage');
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');

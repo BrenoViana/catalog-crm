@@ -393,6 +393,91 @@ async function main() {
 
     await api('POST', `/sales/${weighed.body.id}/cancel`, { reason: 'e2e cleanup peso' });
 
+    // 7k) RBAC: catalogo de permissoes, papeis internos e enforcement real.
+    const perms = await api('GET', '/access/permissions');
+    const roles = await api('GET', '/access/roles');
+    check('catalogo de permissoes e papeis internos no banco', () => {
+      assert.equal(perms.status, 200);
+      assert.ok(perms.body.length >= 20, 'catalogo de permissoes vazio');
+      const keys = roles.body.map((r: any) => r.key).sort();
+      assert.deepEqual(keys, ['ADMIN', 'GERENTE', 'OPERADOR']);
+      const admin = roles.body.find((r: any) => r.key === 'ADMIN');
+      assert.equal(admin.permissions.length, perms.body.length, 'ADMIN sem acesso total');
+      assert.ok(admin.system, 'ADMIN deveria ser papel interno');
+    });
+
+    const meAdmin = await api('GET', '/access/me');
+    check('GET /access/me devolve o conjunto efetivo', () => {
+      assert.equal(meAdmin.status, 200);
+      assert.ok(meAdmin.body.permissions.includes('users.manage'));
+    });
+
+    // O operador nao enxerga gestao de acesso nem dashboard.
+    const adminToken2 = token;
+    const op2 = await api('POST', '/auth/login', { username: 'operador', password: 'operador' });
+    token = op2.body.access_token;
+    const opUsers = await api('GET', '/access/users');
+    const opDash = await api('GET', '/dashboard/summary');
+    const opSales = await api('GET', '/sales');
+    const opMe = await api('GET', '/access/me');
+    token = adminToken2;
+    check('operador: 403 em access/users e dashboard, 200 no que lhe cabe', () => {
+      assert.equal(opUsers.status, 403);
+      assert.equal(opDash.status, 403);
+      assert.equal(opSales.status, 200);
+      assert.equal(opMe.status, 200);
+      assert.ok(!opMe.body.permissions.includes('users.manage'));
+      assert.ok(opMe.body.permissions.includes('sales.create'));
+    });
+
+    // Excecao por usuario: concede dashboard.view so para o operador.
+    const opUser = (await api('GET', '/access/users')).body.find(
+      (u: any) => u.username === 'operador',
+    );
+    await api('PUT', `/access/users/${opUser.id}/overrides`, {
+      overrides: [{ permissionKey: 'dashboard.view', allow: true }],
+    });
+    const op3 = await api('POST', '/auth/login', { username: 'operador', password: 'operador' });
+    token = op3.body.access_token;
+    const opDash2 = await api('GET', '/dashboard/summary');
+    token = adminToken2;
+    check('excecao por usuario concede acesso na hora', () => {
+      assert.equal(opDash2.status, 200);
+      assert.ok(op3.body.permissions.includes('dashboard.view'));
+    });
+
+    // Limpa a excecao para nao vazar estado entre execucoes.
+    await api('PUT', `/access/users/${opUser.id}/overrides`, { overrides: [] });
+    const op4 = await api('POST', '/auth/login', { username: 'operador', password: 'operador' });
+    token = op4.body.access_token;
+    const opDash3 = await api('GET', '/dashboard/summary');
+    token = adminToken2;
+    check('remover a excecao volta a negar', () => {
+      assert.equal(opDash3.status, 403);
+    });
+
+    // Configuracoes do sistema vivem no banco e sao editaveis.
+    const settingsBefore = await api('GET', '/app-settings');
+    const original = settingsBefore.body.find((r: any) => r.key === 'sales.maxInstallments');
+    const putSetting = await api('PUT', '/app-settings', {
+      settings: [{ key: 'sales.maxInstallments', value: 18 }],
+    });
+    const settingsAfter = await api('GET', '/app-settings');
+    const changed = settingsAfter.body.find((r: any) => r.key === 'sales.maxInstallments');
+    await api('PUT', '/app-settings', {
+      settings: [{ key: 'sales.maxInstallments', value: original.value }],
+    });
+    const invalid = await api('PUT', '/app-settings', {
+      settings: [{ key: 'sales.maxInstallments', value: 999 }],
+    });
+    check('configuracoes no banco: leitura, escrita e validacao', () => {
+      assert.equal(settingsBefore.status, 200);
+      assert.ok(settingsBefore.body.length >= 5, 'catalogo de configuracoes vazio');
+      assert.equal(putSetting.status, 200, 'PUT de configuracao deveria responder 200');
+      assert.equal(Number(changed.value), 18);
+      assert.equal(invalid.status, 400, 'valor fora do intervalo deveria ser recusado');
+    });
+
     // 8) Cancelar a venda (caixa ainda aberto)
     const cancel = await api('POST', `/sales/${saleId}/cancel`, {
       reason: 'e2e cleanup',

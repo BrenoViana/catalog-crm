@@ -1,10 +1,9 @@
 import { Body, Controller, Get, Put } from '@nestjs/common';
 import { LicenseService } from './license.service';
 import { UpdateLicenseDto } from './dto/update-license.dto';
-import { Role } from '@prisma/client';
-import { Roles } from '../common/roles.decorator';
+import { RequirePermissions } from '../common/permissions.decorator';
 
-@Roles(Role.ADMIN)
+@RequirePermissions('settings.manage')
 @Controller('settings')
 export class LicenseController {
   constructor(private readonly licenseService: LicenseService) {}

@@ -54,9 +54,19 @@ export class ApiClient {
 }
 
 // ---------------------------------------------------------------- Auth
+export interface AuthUser {
+  id: string;
+  username: string;
+  name: string;
+  /** Papel legado (enum). Exibicao apenas — a autorizacao vem de `permissions`. */
+  role: string;
+  roleKey: string | null;
+  roleName: string | null;
+}
 export interface AuthResponse {
   access_token: string;
-  user: { id: string; username: string; name: string; role: string };
+  user: AuthUser;
+  permissions: string[];
 }
 export const authApi = {
   login: (data: { username: string; password: string }) =>
@@ -481,4 +491,78 @@ export const licenseApi = {
   get: () => ApiClient.get<LicenseInfo>('/settings/license'),
   update: (key: string, customer?: string) =>
     ApiClient.put<LicenseInfo>('/settings/license', { key, customer }),
+};
+
+
+// ---------------------------------------------------------------- Acesso (RBAC)
+export interface Permission {
+  key: string;
+  group: string;
+  label: string;
+  description: string | null;
+  sortOrder: number;
+}
+
+export interface AccessRole {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  system: boolean;
+  permissions: Array<{ permissionKey: string }>;
+  _count?: { users: number };
+}
+
+export interface AccessUser {
+  id: string;
+  username: string;
+  name: string;
+  active: boolean;
+  createdAt: string;
+  roleId: string | null;
+  accessRole: { id: string; key: string; name: string; system: boolean } | null;
+  overrides: Array<{ permissionKey: string; allow: boolean }>;
+}
+
+export const accessApi = {
+  me: () => ApiClient.get<{ permissions: string[] }>('/access/me'),
+  permissions: () => ApiClient.get<Permission[]>('/access/permissions'),
+  roles: () => ApiClient.get<AccessRole[]>('/access/roles'),
+  createRole: (data: { key: string; name: string; description?: string; permissions: string[] }) =>
+    ApiClient.post<AccessRole>('/access/roles', data),
+  updateRole: (
+    id: string,
+    data: { name?: string; description?: string; permissions?: string[] },
+  ) => ApiClient.patch<AccessRole>(`/access/roles/${id}`, data),
+  removeRole: (id: string) => ApiClient.delete<{ message: string }>(`/access/roles/${id}`),
+  users: () => ApiClient.get<AccessUser[]>('/access/users'),
+  setUserRole: (id: string, roleId: string) =>
+    ApiClient.put<{ id: string; roleId: string }>(`/access/users/${id}/role`, { roleId }),
+  setUserOverrides: (id: string, overrides: Array<{ permissionKey: string; allow: boolean }>) =>
+    ApiClient.put(`/access/users/${id}/overrides`, { overrides }),
+  setUserActive: (id: string, active: boolean) =>
+    ApiClient.put(`/access/users/${id}/active`, { active }),
+};
+
+// ---------------------------------------------------------------- Configuracoes do sistema
+export interface AppSettingRow {
+  key: string;
+  group: string;
+  label: string;
+  description?: string;
+  type: 'number' | 'string' | 'boolean';
+  value: number | string | boolean;
+  min?: number;
+  max?: number;
+  options?: string[];
+}
+
+export const appSettingsApi = {
+  list: () => ApiClient.get<AppSettingRow[]>('/app-settings'),
+  publicValues: () =>
+    ApiClient.get<{ maxInstallments: number; scanGapMs: number; drawerLimit: number }>(
+      '/app-settings/public',
+    ),
+  update: (settings: Array<{ key: string; value: unknown }>) =>
+    ApiClient.put<Array<{ key: string; value: unknown }>>('/app-settings', { settings }),
 };

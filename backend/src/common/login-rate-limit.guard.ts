@@ -5,15 +5,11 @@ import {
   HttpStatus,
   Injectable,
 } from '@nestjs/common';
+import { AppSettingsService } from '../settings/app-settings.service';
 
 interface Bucket {
   count: number;
   resetAt: number;
-}
-
-function envInt(name: string, fallback: number): number {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 /**
@@ -23,16 +19,19 @@ function envInt(name: string, fallback: number): number {
  * usuario sao limitadas independentemente da origem.
  *
  * Requer `app.set('trust proxy', ...)` para que req.ip reflita o cliente real
- * atras de um reverse proxy. Ajustavel por LOGIN_RATELIMIT_MAX e
- * LOGIN_RATELIMIT_WINDOW_MS.
+ * atras de um reverse proxy. Os limites vem do banco (login.rateLimit.max e
+ * login.rateLimit.windowMs), ajustaveis em Configuracoes.
  */
 @Injectable()
 export class LoginRateLimitGuard implements CanActivate {
-  private readonly max = envInt('LOGIN_RATELIMIT_MAX', 10);
-  private readonly windowMs = envInt('LOGIN_RATELIMIT_WINDOW_MS', 60_000);
   private readonly hits = new Map<string, Bucket>();
 
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private readonly settings: AppSettingsService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const max = await this.settings.getNumber('login.rateLimit.max');
+    const windowMs = await this.settings.getNumber('login.rateLimit.windowMs');
+
     const req = context.switchToHttp().getRequest<{
       ip?: string;
       socket?: { remoteAddress?: string };
@@ -56,11 +55,11 @@ export class LoginRateLimitGuard implements CanActivate {
     for (const key of keys) {
       let bucket = this.hits.get(key);
       if (!bucket || now >= bucket.resetAt) {
-        bucket = { count: 0, resetAt: now + this.windowMs };
+        bucket = { count: 0, resetAt: now + windowMs };
         this.hits.set(key, bucket);
       }
       bucket.count += 1;
-      if (bucket.count > this.max && (!blocked || bucket.resetAt < blocked.resetAt)) {
+      if (bucket.count > max && (!blocked || bucket.resetAt < blocked.resetAt)) {
         blocked = bucket;
       }
     }

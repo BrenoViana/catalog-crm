@@ -1,9 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
-import { Role } from '@prisma/client';
-import { Roles } from '../common/roles.decorator';
+import { RequirePermissions } from '../common/permissions.decorator';
 import { DashboardService } from './dashboard.service';
 
-@Roles(Role.GERENTE)
+@RequirePermissions('dashboard.view')
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
