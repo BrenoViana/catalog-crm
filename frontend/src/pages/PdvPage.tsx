@@ -357,123 +357,72 @@ export function PdvPage() {
 
       <div className="pdv-layout">
         <div className="pdv-catalog">
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Produtos</h2>
-          </div>
-          <input
-            ref={searchRef}
-            autoFocus
-            className="field-input"
-            placeholder="Buscar por nome, SKU ou código de barras…"
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-            onKeyDown={onSearchKey}
-          />
-          <ul className="result-list">
-            {results.data?.map((p) => (
-              <li key={p.id}>
-                <button className="result-row" onClick={() => addToCart(p)}>
-                  <span>
-                    <strong>{p.name}</strong>
-                    <small>
-                      {p.sku} · estoque {p.stock?.quantity ?? 0} {p.unit}
-                    </small>
-                  </span>
-                  <span>{brl(p.price)}</span>
-                </button>
-              </li>
-            ))}
-            {term.trim().length >= 2 && results.data?.length === 0 ? (
-              <li className="muted" style={{ padding: '10px 4px' }}>
-                Nenhum produto encontrado.
-              </li>
-            ) : null}
-          </ul>
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Carrinho ({cart.length})</h2>
-          </div>
-
-          {cart.length === 0 ? (
-            <p className="muted">Adicione produtos para iniciar a venda.</p>
-          ) : (
-            <ul className="cart">
-              {cart.map((l) => (
-                <li key={l.product.id} className="cart-line">
-                  <div className="cart-line-row">
-                    <div className="cart-line-main">
-                      <strong>{l.product.name}</strong>
-                      <small>{brl(l.product.price)} / {l.product.unit}</small>
-                    </div>
-                    <div className="qty-control">
-                      <button onClick={() => setQty(l.product.id, l.quantity - 1)}>−</button>
-                      <input
-                        value={l.quantity}
-                        onChange={(e) =>
-                          setQty(l.product.id, Math.max(0, Number(e.target.value) || 0))
-                        }
-                      />
-                      <button onClick={() => setQty(l.product.id, l.quantity + 1)}>+</button>
-                    </div>
-                    <strong className="cart-line-total">{brl(lineTotal(l))}</strong>
-                  </div>
-                  <div className="cart-line-extra">
-                    <label>
-                      <span>Desconto</span>
-                      <input
-                        inputMode="text"
-                        value={l.discount}
-                        placeholder="R$ ou %"
-                        onChange={(e) => setLineDiscount(l.product.id, e.target.value)}
-                      />
-                    </label>
-                    {lineDiscount(l) > 0 ? (
-                      <small className="muted">
-                        −{brl(lineDiscount(l))} · bruto {brl(lineGross(l))}
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Produtos</h2>
+            </div>
+            <input
+              ref={searchRef}
+              autoFocus
+              className="field-input"
+              placeholder="Buscar por nome, SKU ou código de barras…"
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              onKeyDown={onSearchKey}
+            />
+            <ul className="result-list">
+              {results.data?.map((p) => (
+                <li key={p.id}>
+                  <button className="result-row" onClick={() => addToCart(p)}>
+                    <span>
+                      <strong>{p.name}</strong>
+                      <small>
+                        {p.sku} · estoque {p.stock?.quantity ?? 0} {p.unit}
                       </small>
-                    ) : null}
-                  </div>
+                    </span>
+                    <span>{brl(p.price)}</span>
+                  </button>
                 </li>
               ))}
-            </ul>
-          )}
-
-          <div className="cart-totals">
-            <div className="cart-totals-row">
-              <span>Subtotal</span>
-              <span>{brl(grossSubtotal)}</span>
-            </div>
-            {itemDiscountTotal > 0 ? (
-              <div className="cart-totals-row">
-                <span>Descontos nos itens</span>
-                <span>−{brl(itemDiscountTotal)}</span>
-              </div>
-            ) : null}
-            <label className="field">
-              <span>Desconto na venda</span>
-              <input
-                inputMode="text"
-                value={saleDiscount}
-                placeholder="R$ ou % (ex.: 5 ou 5%)"
-                onChange={(e) => setSaleDiscount(e.target.value)}
-              />
-              {saleDisc > 0 ? <small className="muted">−{brl(saleDisc)}</small> : null}
-              {discountLimit != null && operatorRole === 'OPERADOR' ? (
-                <small className="muted">Limite do operador: {Number(discountLimit).toFixed(0)}%</small>
+              {term.trim().length >= 2 && results.data?.length === 0 ? (
+                <li className="muted" style={{ padding: '10px 4px' }}>
+                  Nenhum produto encontrado.
+                </li>
               ) : null}
-            </label>
-          </div>
-        </section>
-        </div>
+            </ul>
+          </section>
 
-        <section className="panel pdv-checkout">
-          <div className="cart-summary">
-            <span>Total</span>
-            <strong>{brl(total)}</strong>
-          </div>
+          <section className="panel pdv-checkout">
+            <div className="cart-totals">
+              <div className="cart-totals-row">
+                <span>Subtotal</span>
+                <span>{brl(grossSubtotal)}</span>
+              </div>
+              {itemDiscountTotal > 0 ? (
+                <div className="cart-totals-row">
+                  <span>Descontos nos itens</span>
+                  <span>−{brl(itemDiscountTotal)}</span>
+                </div>
+              ) : null}
+              <label className="field">
+                <span>Desconto na venda</span>
+                <input
+                  inputMode="text"
+                  value={saleDiscount}
+                  placeholder="R$ ou % (ex.: 5 ou 5%)"
+                  onChange={(e) => setSaleDiscount(e.target.value)}
+                />
+                {saleDisc > 0 ? <small className="muted">−{brl(saleDisc)}</small> : null}
+                {discountLimit != null && operatorRole === 'OPERADOR' ? (
+                  <small className="muted">Limite do operador: {Number(discountLimit).toFixed(0)}%</small>
+                ) : null}
+              </label>
+            </div>
+
+            <div className="cart-summary">
+              <span>Total</span>
+              <strong>{brl(total)}</strong>
+            </div>
 
           <label className="field">
             <span>Cliente (opcional)</span>
@@ -565,6 +514,57 @@ export function PdvPage() {
           >
             {sale.isPending ? 'Finalizando…' : `Finalizar venda — ${brl(total)}`}
           </button>
+          </section>
+        </div>
+
+        <section className="panel pdv-cart">
+          <div className="panel-header">
+            <h2>Carrinho ({cart.length})</h2>
+          </div>
+
+          {cart.length === 0 ? (
+            <p className="muted">Adicione produtos para iniciar a venda.</p>
+          ) : (
+            <ul className="cart">
+              {cart.map((l) => (
+                <li key={l.product.id} className="cart-line">
+                  <div className="cart-line-row">
+                    <div className="cart-line-main">
+                      <strong>{l.product.name}</strong>
+                      <small>{brl(l.product.price)} / {l.product.unit}</small>
+                    </div>
+                    <div className="qty-control">
+                      <button onClick={() => setQty(l.product.id, l.quantity - 1)}>−</button>
+                      <input
+                        value={l.quantity}
+                        onChange={(e) =>
+                          setQty(l.product.id, Math.max(0, Number(e.target.value) || 0))
+                        }
+                      />
+                      <button onClick={() => setQty(l.product.id, l.quantity + 1)}>+</button>
+                    </div>
+                    <strong className="cart-line-total">{brl(lineTotal(l))}</strong>
+                  </div>
+                  <div className="cart-line-extra">
+                    <label>
+                      <span>Desconto</span>
+                      <input
+                        inputMode="text"
+                        value={l.discount}
+                        placeholder="R$ ou %"
+                        onChange={(e) => setLineDiscount(l.product.id, e.target.value)}
+                      />
+                    </label>
+                    {lineDiscount(l) > 0 ? (
+                      <small className="muted">
+                        −{brl(lineDiscount(l))} · bruto {brl(lineGross(l))}
+                      </small>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
 
