@@ -141,30 +141,46 @@ export class DashboardService {
   }
 
   private async salesLast7Days() {
-    const days: { date: string; label: string; value: number }[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const start = new Date(today);
+    start.setDate(start.getDate() - 6);
 
-    for (let i = 6; i >= 0; i--) {
+    // Chave de dia no fuso local (evita o deslocamento de toISOString em UTC-3).
+    const dayKey = (d: Date) => {
+      const x = new Date(d);
+      x.setHours(0, 0, 0, 0);
+      return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(
+        x.getDate(),
+      ).padStart(2, '0')}`;
+    };
+
+    // Uma unica consulta na janela toda; o balde por dia e feito em memoria.
+    const sales = await this.prisma.sale.findMany({
+      where: { status: 'CONCLUIDA', completedAt: { gte: start } },
+      select: { total: true, completedAt: true },
+    });
+
+    const days = Array.from({ length: 7 }, (_, i) => {
       const from = new Date(today);
-      from.setDate(from.getDate() - i);
-      const to = new Date(from);
-      to.setDate(to.getDate() + 1);
-
-      const sales = await this.prisma.sale.findMany({
-        where: { status: 'CONCLUIDA', completedAt: { gte: from, lt: to } },
-        select: { total: true },
-      });
-      const value = sales.reduce((acc, s) => acc.plus(s.total), D(0));
-      days.push({
-        date: from.toISOString().slice(0, 10),
+      from.setDate(from.getDate() - (6 - i));
+      return {
+        date: dayKey(from),
         label: from
           .toLocaleDateString('pt-BR', { weekday: 'short' })
           .replace('.', ''),
-        value: value.toNumber(),
-      });
+        value: D(0),
+      };
+    });
+    const idx = new Map(days.map((d, i) => [d.date, i]));
+
+    for (const s of sales) {
+      if (!s.completedAt) continue;
+      const i = idx.get(dayKey(s.completedAt));
+      if (i !== undefined) days[i].value = days[i].value.plus(s.total);
     }
-    return days;
+
+    return days.map((d) => ({ ...d, value: d.value.toNumber() }));
   }
 
   private async topProducts() {

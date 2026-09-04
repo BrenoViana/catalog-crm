@@ -8,7 +8,16 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
-    super({ adapter: new PrismaPg(process.env.DATABASE_URL as string) });
+    super({
+      adapter: new PrismaPg({
+        connectionString: process.env.DATABASE_URL as string,
+        // Pool enxuto: telas como o dashboard disparam varias consultas de uma
+        // vez e o Postgres de desenvolvimento derruba conexoes em excesso.
+        max: 8,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 10_000,
+      }),
+    });
   }
 
   async onModuleInit() {
