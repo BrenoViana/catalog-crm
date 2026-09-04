@@ -172,7 +172,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <strong>{user?.name ?? 'Usuário'}</strong>
               <small>{role ?? ''}</small>
             </div>
-            <button className="ghost-button" onClick={handleLogout}>
+            <button className="footer-action" onClick={handleLogout}>
               Sair
             </button>
           </div>
