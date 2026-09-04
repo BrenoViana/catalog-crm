@@ -12,18 +12,44 @@ export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(params: { search?: string; categoryId?: string; onlyActive?: boolean }) {
-    const { search, categoryId, onlyActive } = params;
+    const { categoryId, onlyActive } = params;
+    const term = params.search?.trim();
+
+    // Busca textual: usa os indices trigram (ver migration terminal_pricing_mode).
+    // immutable_unaccent() tolera acento; o operador % tolera erro de digitacao.
+    if (term && term.length >= 2) {
+      const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT id
+        FROM "Product"
+        WHERE (${onlyActive ?? null}::boolean IS NOT TRUE OR "active" = true)
+          AND (${categoryId ?? null}::text IS NULL OR "categoryId" = ${categoryId ?? null})
+          AND (
+            immutable_unaccent(lower("name")) LIKE '%' || immutable_unaccent(lower(${term})) || '%'
+            OR lower("sku") LIKE '%' || lower(${term}) || '%'
+            OR "barcode" = ${term}
+            OR immutable_unaccent(lower(${term})) <% immutable_unaccent(lower("name"))
+          )
+        ORDER BY
+          word_similarity(immutable_unaccent(lower(${term})), immutable_unaccent(lower("name"))) DESC,
+          "name" ASC
+        LIMIT 50
+      `;
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) return [];
+
+      const found = await this.prisma.product.findMany({
+        where: { id: { in: ids } },
+        include: { category: true, stock: true, taxGroup: true },
+      });
+      // findMany nao preserva a ordem do IN: reaplica a relevancia do SQL.
+      const rank = new Map(ids.map((id, i) => [id, i]));
+      return found.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    }
+
     return this.prisma.product.findMany({
       where: {
         active: onlyActive ? true : undefined,
         categoryId: categoryId || undefined,
-        OR: search
-          ? [
-              { name: { contains: search, mode: 'insensitive' } },
-              { sku: { contains: search, mode: 'insensitive' } },
-              { barcode: { contains: search } },
-            ]
-          : undefined,
       },
       orderBy: { name: 'asc' },
       include: { category: true, stock: true, taxGroup: true },
@@ -59,7 +85,8 @@ export class ProductsService {
         barcode: dto.barcode || null,
         name: dto.name,
         description: dto.description,
-        unit: dto.unit ?? 'UN',
+        unit: dto.unit ?? (dto.pricingMode === 'WEIGHT' ? 'KG' : 'UN'),
+        pricingMode: dto.pricingMode ?? 'UNIT',
         price: dto.price,
         cost: dto.cost,
         imageUrl: dto.imageUrl,
@@ -87,6 +114,7 @@ export class ProductsService {
         name: dto.name,
         description: dto.description,
         unit: dto.unit,
+        pricingMode: dto.pricingMode,
         price: dto.price,
         cost: dto.cost,
         imageUrl: dto.imageUrl,

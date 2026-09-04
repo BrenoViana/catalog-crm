@@ -67,8 +67,11 @@ async function main() {
 
   const sku = `E2E-${Date.now()}`;
   const sku2 = `E2E-${Date.now()}-B`;
+  // Item de balanca: o codigo impresso na etiqueta tem 6 digitos.
+  const skuScale = String(Date.now()).slice(-6);
   let productId = '';
   let product2Id = '';
+  let scaleProductId = '';
   let saleId = '';
 
   try {
@@ -136,23 +139,29 @@ async function main() {
     productId = create.body.id;
 
     // 4) Abrir caixa com fundo de R$ 100
-    const open = await api('POST', '/cash/open', { openingAmount: 100 });
-    check('abre caixa -> ABERTA, abertura 100', () => {
+    const open = await api('POST', '/cash/open', {
+      openingAmount: 100,
+      terminal: 'Caixa E2E',
+    });
+    check('abre caixa -> ABERTA, abertura 100, terminal gravado', () => {
       assert.equal(open.status, 201);
       assert.equal(open.body.status, 'ABERTA');
       assert.equal(Number(open.body.openingAmount), 100);
+      assert.equal(open.body.terminal, 'Caixa E2E');
     });
 
     // 5) Vender 2 un a R$ 10, pagas em dinheiro (R$ 20)
     const sale = await api('POST', '/sales', {
       items: [{ productId, quantity: 2 }],
       payments: [{ method: 'DINHEIRO', amount: 20 }],
+      terminal: 'Caixa E2E',
     });
-    check('registra venda -> CONCLUIDA, total 20', () => {
+    check('registra venda -> CONCLUIDA, total 20, terminal gravado', () => {
       assert.equal(sale.status, 201);
       assert.equal(sale.body.status, 'CONCLUIDA');
       assert.equal(Number(sale.body.total), 20);
       assert.ok(sale.body.number > 0, 'venda sem numero');
+      assert.equal(sale.body.terminal, 'Caixa E2E');
     });
     saleId = sale.body.id;
 
@@ -178,6 +187,7 @@ async function main() {
     const readX = await api('GET', '/cash/report');
     check('leitura X -> 1 venda, 20 em dinheiro, esperado 120', () => {
       assert.equal(readX.body.kind, 'X');
+      assert.equal(readX.body.session.terminal, 'Caixa E2E');
       assert.equal(readX.body.sales.count, 1);
       assert.equal(Number(readX.body.sales.total), 20);
       assert.equal(Number(readX.body.cash.expected), 120);
@@ -335,6 +345,54 @@ async function main() {
       assert.equal(Number(stock2Back.body.stock.quantity), 5);
     });
 
+    // 7i) Item por peso: preco por kg, quantidade fracionaria vinda da balanca.
+    const scaleProduct = await api('POST', '/products', {
+      sku: skuScale,
+      name: 'Queijo Minas Frescal E2E',
+      price: 10,
+      pricingMode: 'WEIGHT',
+      initialStock: 5,
+      minStock: 1,
+    });
+    check('cria produto por peso -> pricingMode WEIGHT, unidade KG', () => {
+      assert.equal(scaleProduct.status, 201);
+      assert.equal(scaleProduct.body.pricingMode, 'WEIGHT');
+      assert.equal(scaleProduct.body.unit, 'KG');
+    });
+    scaleProductId = scaleProduct.body.id;
+
+    // Etiqueta 2 + 6 digitos de item + 01234 g -> 1,234 kg a R$ 10/kg = R$ 12,34
+    const weighed = await api('POST', '/sales', {
+      items: [{ productId: scaleProductId, quantity: 1.234 }],
+      payments: [{ method: 'PIX', amount: 12.34 }],
+    });
+    check('venda por peso 1,234 kg x R$ 10/kg -> total 12,34', () => {
+      assert.equal(weighed.status, 201);
+      assert.equal(Number(weighed.body.total), 12.34);
+      assert.equal(Number(weighed.body.items[0].quantity), 1.234);
+    });
+
+    const scaleStock = await api('GET', `/products/${scaleProductId}`);
+    check('estoque por peso baixou 1,234 (5 -> 3,766)', () => {
+      assert.equal(Number(scaleStock.body.stock.quantity), 3.766);
+    });
+
+    // 7j) Busca do PDV: tolera acento e erro de digitacao (indices trigram).
+    const byAccent = await api('GET', '/products?search=' + encodeURIComponent('miñas') + '&onlyActive=true');
+    const byTypo = await api('GET', '/products?search=' + encodeURIComponent('frescall') + '&onlyActive=true');
+    check('busca tolera acento e erro de digitacao', () => {
+      assert.ok(
+        byAccent.body.some((p: any) => p.id === scaleProductId),
+        'busca com acento nao achou o produto',
+      );
+      assert.ok(
+        byTypo.body.some((p: any) => p.id === scaleProductId),
+        'busca com erro de digitacao nao achou o produto',
+      );
+    });
+
+    await api('POST', `/sales/${weighed.body.id}/cancel`, { reason: 'e2e cleanup peso' });
+
     // 8) Cancelar a venda (caixa ainda aberto)
     const cancel = await api('POST', `/sales/${saleId}/cancel`, {
       reason: 'e2e cleanup',
@@ -380,10 +438,10 @@ async function main() {
 
     // 11-Z) Relatorio Z do turno fechado: vendas do turno canceladas, diferenca 0.
     const readZ = await api('GET', `/cash/report/${close.body.id}`);
-    check('relatorio Z -> kind Z, 0 vendas ativas, 2 canceladas, diferenca 0', () => {
+    check('relatorio Z -> kind Z, 0 vendas ativas, 3 canceladas, diferenca 0', () => {
       assert.equal(readZ.body.kind, 'Z');
       assert.equal(readZ.body.sales.count, 0);
-      assert.equal(readZ.body.sales.canceledCount, 2);
+      assert.equal(readZ.body.sales.canceledCount, 3);
       assert.equal(Number(readZ.body.cash.difference), 0);
       assert.equal(Number(readZ.body.cash.counted), 100);
     });
@@ -395,6 +453,9 @@ async function main() {
       }
       if (product2Id) {
         await api('DELETE', `/products/${product2Id}`).catch(() => undefined);
+      }
+      if (scaleProductId) {
+        await api('DELETE', `/products/${scaleProductId}`).catch(() => undefined);
       }
     }
     await app.close();

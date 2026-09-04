@@ -118,6 +118,7 @@ export interface Product {
   name: string;
   description: string | null;
   unit: string;
+  pricingMode: 'UNIT' | 'WEIGHT';
   price: number;
   cost: number | null;
   active: boolean;
@@ -132,6 +133,7 @@ export interface CreateProductInput {
   barcode?: string;
   description?: string;
   unit?: string;
+  pricingMode?: 'UNIT' | 'WEIGHT';
   price: number;
   cost?: number;
   categoryId?: string;
@@ -275,6 +277,7 @@ export interface Sale {
   discount: number;
   total: number;
   note: string | null;
+  terminal: string | null;
   createdAt: string;
   completedAt: string | null;
   customer?: Customer | null;
@@ -322,6 +325,7 @@ export interface CreateSaleInput {
   customerId?: string;
   discount?: number;
   note?: string;
+  terminal?: string;
 }
 
 export interface SaleReturnItem {
@@ -380,6 +384,7 @@ export const fiscalApi = {
 export interface CashSession {
   id: string;
   status: 'ABERTA' | 'FECHADA';
+  terminal: string | null;
   openingAmount: number;
   openedAt: string;
   closedAt: string | null;
@@ -395,6 +400,7 @@ export interface CashReport {
   session: {
     id: string;
     status: 'ABERTA' | 'FECHADA';
+    terminal: string | null;
     openedAt: string;
     closedAt: string | null;
     openingAmount: number;
@@ -419,8 +425,8 @@ export const cashApi = {
   history: () => ApiClient.get<CashSession[]>('/cash/history'),
   report: () => ApiClient.get<CashReport>('/cash/report'),
   reportFor: (sessionId: string) => ApiClient.get<CashReport>(`/cash/report/${sessionId}`),
-  open: (openingAmount: number, notes?: string) =>
-    ApiClient.post<CashSession>('/cash/open', { openingAmount, notes }),
+  open: (openingAmount: number, notes?: string, terminal?: string) =>
+    ApiClient.post<CashSession>('/cash/open', { openingAmount, notes, terminal }),
   movement: (type: 'SANGRIA' | 'SUPRIMENTO', amount: number, reason?: string) =>
     ApiClient.post<CashSession>('/cash/movement', { type, amount, reason }),
   close: (countedAmount: number, notes?: string) =>

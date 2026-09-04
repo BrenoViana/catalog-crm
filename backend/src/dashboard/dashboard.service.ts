@@ -24,41 +24,30 @@ export class DashboardService {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [
-      salesToday,
-      itemsAgg,
-      activeProducts,
-      stockItems,
-      last7,
-      topProducts,
-      paymentsToday,
-      relationship,
-      openSessions,
-    ] = await Promise.all([
-      this.prisma.sale.findMany({
-        where: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
-        select: { total: true },
-      }),
+    // O dashboard junta ~10 consultas. Disparar todas de uma vez estoura o
+    // limite de conexoes do Postgres de desenvolvimento (P1017
+    // ConnectionClosed -> 500), entao vao em lotes pequenos: a tela e
+    // atualizada a cada 30s, alguns milissegundos a mais nao pesam.
+    const today = { status: 'CONCLUIDA' as const, completedAt: { gte: startOfToday } };
+
+    const [salesToday, itemsAgg, activeProducts] = await Promise.all([
+      this.prisma.sale.findMany({ where: today, select: { total: true } }),
       this.prisma.saleItem.aggregate({
         _sum: { quantity: true },
-        where: {
-          sale: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
-        },
+        where: { sale: today },
       }),
       this.prisma.product.count({ where: { active: true } }),
+    ]);
+
+    const [stockItems, paymentsToday, openSessions] = await Promise.all([
       this.prisma.stockItem.findMany({
         select: { quantity: true, minQuantity: true },
       }),
-      this.salesLast7Days(),
-      this.topProducts(),
       this.prisma.payment.groupBy({
         by: ['method'],
         _sum: { amount: true },
-        where: {
-          sale: { status: 'CONCLUIDA', completedAt: { gte: startOfToday } },
-        },
+        where: { sale: today },
       }),
-      this.customerRelationship(),
       this.prisma.cashSession.findMany({
         where: { status: 'ABERTA' },
         orderBy: { openedAt: 'asc' },
@@ -68,6 +57,10 @@ export class DashboardService {
         },
       }),
     ]);
+
+    const last7 = await this.salesLast7Days();
+    const topProducts = await this.topProducts();
+    const relationship = await this.customerRelationship();
 
     const revenueToday = salesToday.reduce((acc, s) => acc.plus(s.total), D(0));
     const count = salesToday.length;
@@ -113,21 +106,22 @@ export class DashboardService {
     const from30 = new Date();
     from30.setDate(from30.getDate() - 30);
 
-    const [newThisMonth, salesWindow, activeCustomers] = await Promise.all([
-      this.prisma.customer.count({ where: { createdAt: { gte: startOfMonth } } }),
-      this.prisma.sale.findMany({
-        where: { status: 'CONCLUIDA', completedAt: { gte: from30 } },
-        select: { customerId: true },
-      }),
-      this.prisma.sale.groupBy({
-        by: ['customerId'],
-        where: {
-          status: 'CONCLUIDA',
-          completedAt: { gte: from30 },
-          customerId: { not: null },
-        },
-      }),
-    ]);
+    // Em serie, pelo mesmo motivo do summary(): nao somar concorrencia.
+    const newThisMonth = await this.prisma.customer.count({
+      where: { createdAt: { gte: startOfMonth } },
+    });
+    const salesWindow = await this.prisma.sale.findMany({
+      where: { status: 'CONCLUIDA', completedAt: { gte: from30 } },
+      select: { customerId: true },
+    });
+    const activeCustomers = await this.prisma.sale.groupBy({
+      by: ['customerId'],
+      where: {
+        status: 'CONCLUIDA',
+        completedAt: { gte: from30 },
+        customerId: { not: null },
+      },
+    });
 
     const totalSales = salesWindow.length;
     const identifiedSales = salesWindow.filter((s) => s.customerId).length;

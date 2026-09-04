@@ -17,6 +17,12 @@ export class OpenCashDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  /** Terminal/caixa (por dispositivo) em que o turno esta sendo aberto. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  terminal?: string;
 }
 
 export class CloseCashDto {
