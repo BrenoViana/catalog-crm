@@ -277,9 +277,10 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 22px;
-  /* Marca no topo e rodapé no fim ficam sempre visíveis; só a lista de
-     navegação rola quando não cabe (ver .nav-menu). */
-  overflow: hidden;
+  /* Marca, menu e rodapé são um bloco só: quando não cabem na altura da
+     viewport, a sidebar inteira rola de uma vez — sem barra de rolagem
+     própria na lista de navegação. */
+  overflow-y: auto;
 }
 
 /* Botão sanduíche — fixo no canto, sempre acessível. */
@@ -334,12 +335,6 @@ h2 {
   display: grid;
   gap: 8px;
   align-content: start;
-  margin: 0 -4px;
-  padding: 0 4px;
-  /* Ocupa o espaço livre entre a marca e o rodapé e rola por dentro. */
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .nav-item,
@@ -384,51 +379,42 @@ h2 {
 }
 
 .sidebar-footer {
-  /* Fica no mesmo fluxo do menu (parte da coluna da sidebar), mas ancorado
-     no rodapé por conta própria: a lista de navegação rola e ele não sai
-     da vista. */
+  /* Segue logo abaixo do menu, no mesmo fluxo que rola junto. A régua
+     horizontal separa o último item de navegação do bloco tema/config/usuário. */
   flex-shrink: 0;
-  margin-top: auto;
   display: grid;
-  gap: 10px;
+  gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
 
-.theme-toggle {
+/* Tema, Configurações e usuário usam a mesma casca dos itens de navegação:
+   fundo transparente, borda só no hover/ativo. */
+.theme-toggle,
+.user-box {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 12px 14px;
   border-radius: 12px;
-  background: var(--chip-bg);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-soft);
-  font-size: 0.88rem;
+  font-size: 0.94rem;
   transition: all 0.18s ease;
 }
 
-.theme-toggle:hover {
+.theme-toggle:hover,
+.user-box:hover {
   background: var(--accent-soft);
   border-color: var(--accent-border);
 }
 
 .theme-toggle span:last-child {
   color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.user-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px;
-  gap: 10px;
+  font-size: 0.82rem;
 }
 
 .user-box strong,
@@ -436,8 +422,31 @@ h2 {
   display: block;
 }
 
+.user-box strong {
+  font-weight: 600;
+}
+
 .user-box small {
   color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* Ação secundária dentro da linha do usuário (Sair). */
+.footer-action {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  transition: all 0.18s ease;
+}
+
+.footer-action:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--text-strong);
 }
 
 .ghost-button {
