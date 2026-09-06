@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { RequirePermissions } from '../common/permissions.decorator';
+import { RequireModule } from '../license/module.guard';
 import { CancelFiscalDto } from './dto/cancel-fiscal.dto';
 import { FiscalService } from './fiscal.service';
 
+@RequireModule('fiscal')
 @Controller('fiscal')
 export class FiscalController {
   constructor(private readonly fiscal: FiscalService) {}

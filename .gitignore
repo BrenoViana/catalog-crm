@@ -61,3 +61,30 @@ Thumbs.db
 tmp/
 temp/
 .cache
+
+# Estado local dos hooks de seguranca (marcas de sessao e da ultima revisao)
+.claude/seguranca/estado/
+
+# Relatorios de revisao de seguranca: listam vulnerabilidades AINDA NAO
+# corrigidas, com arquivo, linha e prova de conceito. Nao viajam com o repo.
+# O historico de achados que deve ser versionado vive em .claude/agents/baseline.md
+.claude/seguranca/relatorios/*
+!.claude/seguranca/relatorios/README.md
+
+# Chaves de licenciamento. A PRIVADA e do fornecedor e nunca pode ser
+# versionada: quem a tem emite licenca para qualquer cliente, de graca.
+# A publica e inofensiva, mas fica de fora por higiene — cada instalacao
+# recebe a sua pelo .env.
+licenca-privada.pem
+licenca-publica.pem
+*.license.pem
+
+# Rede larga de proposito: as regras acima cobrem tres nomes fixos, e a
+# ferramenta de emissao escreve no diretorio corrente — rodada de outro lugar,
+# produzia um arquivo fora do alcance delas. Material criptografico nao entra
+# neste repositorio sob nenhum nome.
+*.pem
+*.key
+*.p12
+*.pfx
+*.der

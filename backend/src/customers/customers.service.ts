@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -203,9 +207,48 @@ export class CustomersService {
     });
   }
 
+  /**
+   * Remove o cliente — mas nunca por cima de dinheiro.
+   *
+   * O cadastro deixou de ser so contato: agora carrega titulo a receber e o
+   * razao do cashback. Apagar o cliente apagava junto a evidencia de saldo
+   * criado e consumido, e `customers.manage` pertence tambem ao OPERADOR
+   * (SEC-063). Com divida ou saldo, a remocao e recusada com o motivo — quem
+   * quiser encerrar a relacao resolve o financeiro primeiro.
+   */
   async remove(id: string) {
     await this.findOne(id);
-    await this.prisma.customer.delete({ where: { id } });
+
+    const [titulos, conta] = await Promise.all([
+      this.prisma.receivable.count({
+        where: { customerId: id, status: { in: ['ABERTO', 'PARCIAL'] } },
+      }),
+      this.prisma.loyaltyAccount.findUnique({
+        where: { customerId: id },
+        select: { balance: true, _count: { select: { entries: true } } },
+      }),
+    ]);
+
+    if (titulos > 0) {
+      throw new BadRequestException(
+        `Cliente tem ${titulos} titulo(s) de crediario em aberto. Baixe ou cancele antes de remover.`,
+      );
+    }
+    if (conta && (conta._count.entries > 0 || D(conta.balance).gt(0))) {
+      throw new BadRequestException(
+        'Cliente tem historico de fidelidade. Zere o saldo pelo ajuste manual ' +
+          'antes de remover — o extrato e a unica prova de saldo criado e usado.',
+      );
+    }
+
+    // Conta aberta e nunca usada nao e historico: e uma linha vazia criada por
+    // um upsert. Ela precisa sair na mesma transacao, senao a FK RESTRICT
+    // recusa a exclusao e o cliente recebe um 500 com o nome da constraint em
+    // vez do 400 que as guardas acima produzem (SEC-074).
+    await this.prisma.$transaction(async (tx) => {
+      if (conta) await tx.loyaltyAccount.delete({ where: { customerId: id } });
+      await tx.customer.delete({ where: { id } });
+    });
     return { message: 'Cliente removido.' };
   }
 

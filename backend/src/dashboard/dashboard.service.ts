@@ -43,10 +43,13 @@ export class DashboardService {
       this.prisma.stockItem.findMany({
         select: { quantity: true, minQuantity: true },
       }),
+      // Mesmo filtro da leitura X/Z: pagamento recusado pelo gateway, ainda
+      // pendente ou ja estornado nao e faturamento. Sem isto, a tela que o
+      // gerente olha esconde exatamente o buraco que ela deveria denunciar.
       this.prisma.payment.groupBy({
         by: ['method'],
         _sum: { amount: true },
-        where: { sale: today },
+        where: { sale: today, status: { in: ['AUTORIZADO', 'CONFIRMADO'] } },
       }),
       this.prisma.cashSession.findMany({
         where: { status: 'ABERTA' },

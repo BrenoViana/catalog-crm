@@ -9,6 +9,9 @@ import { InventoryPage } from './pages/InventoryPage';
 import { SalesPage } from './pages/SalesPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { CashPage } from './pages/CashPage';
+import { PromotionsPage } from './pages/PromotionsPage';
+import { FinancePage } from './pages/FinancePage';
+import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { homePathFor, useAuthStore } from './store/authStore';
 
@@ -41,6 +44,9 @@ function App() {
       <Route path="/vendas" element={<Guard need="sales.view"><SalesPage /></Guard>} />
       <Route path="/clientes" element={<Guard need="customers.view"><CustomersPage /></Guard>} />
       <Route path="/caixa" element={<Guard need="cash.operate"><CashPage /></Guard>} />
+      <Route path="/promocoes" element={<Guard need="promotions.manage"><PromotionsPage /></Guard>} />
+      <Route path="/financeiro" element={<Guard need="finance.view"><FinancePage /></Guard>} />
+      <Route path="/relatorios" element={<Guard need="reports.view"><ReportsPage /></Guard>} />
       <Route path="/configuracoes" element={<Guard need="settings.manage"><SettingsPage /></Guard>} />
       <Route
         path="*"

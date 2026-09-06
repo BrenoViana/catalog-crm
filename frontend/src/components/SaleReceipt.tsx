@@ -114,7 +114,14 @@ export function SaleReceipt({ sale, store, operatorName, customerName }: Props) 
       <div className="receipt-rule" />
       {payments.map((p) => (
         <div className="receipt-row" key={p.id}>
-          <span>{paymentLabel[p.method] ?? p.method}</span>
+          <span>
+            {paymentLabel[p.method] ?? p.method}
+            {/* Codigo de autorizacao do gateway — o que o cliente confere
+                no comprovante do cartao. */}
+            {p.authorizationCode ? <small> aut. {p.authorizationCode}</small> : null}
+            {p.status === 'NEGADO' ? <small> (negado)</small> : null}
+            {p.status === 'ESTORNADO' ? <small> (estornado)</small> : null}
+          </span>
           <span>{brl(p.amount)}</span>
         </div>
       ))}

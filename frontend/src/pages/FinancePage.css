@@ -1,0 +1,185 @@
+/* Financeiro: títulos, fluxo de caixa e resultado. */
+
+.finance-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.finance-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* Faixas de vencimento --------------------------------------------------- */
+
+.aging-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.aging-list li {
+  display: grid;
+  grid-template-columns: 110px 1fr 110px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.aging-list li > strong {
+  text-align: right;
+}
+
+.aging-list .share-fill.aging-late {
+  background: var(--danger-text, #b3261e);
+}
+.aging-list .share-fill.aging-soon {
+  background: var(--warning-text, #9c6717);
+}
+.aging-list .share-fill.aging-mid {
+  background: var(--accent, #0e6e6e);
+}
+.aging-list .share-fill.aging-far {
+  background: var(--muted-text, #8a8f97);
+}
+
+/* Entradas x saídas por dia ---------------------------------------------- */
+
+.cash-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 160px;
+  margin-top: 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.cash-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 26px;
+  height: 100%;
+}
+
+.cash-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 1;
+  width: 100%;
+}
+
+.cash-bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+}
+
+.cash-in {
+  background: var(--success-text, #3f7d3f);
+}
+
+.cash-out {
+  background: var(--warning-text, #9c6717);
+}
+
+.cash-day small {
+  font-size: 11px;
+  color: var(--muted-text, #8a8f97);
+}
+
+/* Formulários ------------------------------------------------------------ */
+
+.finance-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--border, #dcd8d0);
+  border-radius: 10px;
+}
+
+.finance-form label,
+.settle-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.finance-form label > span,
+.settle-form label > span {
+  font-weight: 500;
+}
+
+.finance-form label > .field-input + .field-input {
+  margin-top: 6px;
+}
+
+.settle-form {
+  display: grid;
+  grid-template-columns: 160px 180px 1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+.settle-form .settle-note {
+  grid-column: 3;
+}
+
+.settle-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settle-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+}
+
+.settle-panel {
+  margin-top: 16px;
+}
+
+/* Um título vencido tem de saltar aos olhos na lista. */
+.row-late td:first-child {
+  border-left: 3px solid var(--warning-text, #9c6717);
+}
+
+@media (max-width: 900px) {
+  .finance-columns,
+  .settle-form {
+    grid-template-columns: 1fr;
+  }
+  .settle-form .settle-note {
+    grid-column: 1;
+  }
+}
+
+/* Subtítulo dentro de um painel do fechamento do dia. */
+.day-sub {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted, #6b7280);
+}
+
+/* Botão que se comporta como link — usado para saltar para um dia da lista. */
+.ghost-button-inline {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

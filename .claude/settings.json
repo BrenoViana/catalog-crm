@@ -1,6 +1,29 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/marca-inicio-de-sessao.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/revisao-fim-de-sessao.sh",
+            "timeout": 30,
+            "statusMessage": "Checando revisão de segurança da sessão…"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",

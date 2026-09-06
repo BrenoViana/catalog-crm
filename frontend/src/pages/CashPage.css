@@ -1,3 +1,55 @@
 /* Caixa: leitura X do turno atual e relatório Z do fechamento. */
 .turn-report { display: grid; gap: 4px; }
 .turn-report .stats-grid { margin-top: 4px; }
+
+/* Aviso de gaveta acima do teto (AppSetting cash.drawerLimit).
+   Avisa e propõe a sangria; nunca bloqueia a operação do caixa. */
+.drawer-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning, #c98a1a);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning, #c98a1a) 10%, transparent);
+}
+.drawer-alert p {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted, #667);
+}
+.drawer-alert button { flex-shrink: 0; }
+
+/* Consolidado multi-caixa: filtro de período no cabeçalho e os recortes lado a
+   lado. Em telas estreitas os recortes empilham — o gerente também confere o
+   consolidado pelo celular. */
+.consolidated-range {
+  display: flex;
+  gap: 12px;
+}
+
+.consolidated-range .field {
+  margin: 0;
+  min-width: 140px;
+}
+
+.consolidated-cuts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .consolidated-cuts {
+    grid-template-columns: 1fr;
+  }
+
+  .consolidated-range {
+    flex-wrap: wrap;
+  }
+}

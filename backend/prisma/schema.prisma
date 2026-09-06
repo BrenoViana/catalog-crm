@@ -26,6 +26,28 @@ enum PricingMode {
   WEIGHT
 }
 
+/// Como a promocao calcula o desconto do item.
+enum PromotionKind {
+  /// Percentual sobre o preco do item.
+  PERCENT
+  /// Valor fixo em R$ por unidade.
+  AMOUNT
+  /// Preco fixo por unidade enquanto a promocao valer.
+  FIXED_PRICE
+  /// Leve X, pague Y: as unidades excedentes de cada bloco saem de graca.
+  BUY_X_PAY_Y
+}
+
+/// A que itens a promocao se aplica.
+enum PromotionScope {
+  /// Um produto especifico.
+  PRODUCT
+  /// Todos os produtos de uma categoria.
+  CATEGORY
+  /// Todo o catalogo.
+  ALL
+}
+
 enum StockMovementType {
   ENTRADA
   SAIDA
@@ -48,6 +70,9 @@ enum PaymentMethod {
   CREDITO
   CREDIARIO
   OUTRO
+  /// Resgate de saldo de fidelidade. Nao entra na gaveta e nao vira titulo:
+  /// e credito que a propria loja concedeu e agora esta devolvendo.
+  FIDELIDADE
 }
 
 /// Ciclo de vida de um pagamento. Dinheiro nasce CONFIRMADO; meios
@@ -84,6 +109,47 @@ enum CashMovementType {
   FECHAMENTO
 }
 
+/// Situacao do fechamento financeiro de um dia de operacao.
+enum DailyClosingStatus {
+  /// Dia consolidado e travado.
+  FECHADO
+  /// Dia reaberto por um gerente — a trava caiu e o retrato anterior ficou
+  /// guardado no snapshot ate o proximo fechamento.
+  REABERTO
+}
+
+/// Ciclo de vida de um titulo (a receber ou a pagar).
+enum TitleStatus {
+  ABERTO
+  /// Baixado em parte: ha pagamento, mas ainda sobra saldo.
+  PARCIAL
+  PAGO
+  CANCELADO
+}
+
+/// Periodicidade de uma despesa que se repete (aluguel, energia, folha).
+enum PayableRecurrence {
+  NENHUMA
+  SEMANAL
+  MENSAL
+  BIMESTRAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+}
+
+/// O que moveu o saldo de fidelidade do cliente.
+enum LoyaltyEntryType {
+  /// Cashback gerado por uma venda.
+  ACUMULO
+  /// Saldo usado como pagamento no PDV.
+  RESGATE
+  /// Ajuste manual de gerente (bonus ou correcao).
+  AJUSTE
+  /// Estorno de acumulo ou de resgate por cancelamento da venda.
+  ESTORNO
+}
+
 enum TaxRegime {
   SIMPLES_NACIONAL
   SIMPLES_EXCESSO
@@ -95,27 +161,33 @@ enum TaxRegime {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String   @id @default(uuid())
-  username     String   @unique
+  id           String      @id @default(uuid())
+  username     String      @unique
   passwordHash String
   name         String
   /// Papel legado (enum). Mantido só para leitura de dados antigos e para o
   /// seed; a autorizacao real sai de roleId -> RolePermission.
-  role         Role     @default(OPERADOR)
+  role         Role        @default(OPERADOR)
   roleId       String?
   accessRole   AccessRole? @relation(fields: [roleId], references: [id])
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt @default(now())
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @default(now()) @updatedAt
 
-  sales          Sale[]
-  cashSessions   CashSession[]
-  stockMovements StockMovement[]
-  cashMovements  CashMovement[]
-  saleReturns    SaleReturn[]
-  overrides      UserPermission[]
-  auditActions   AuditLog[]       @relation("AuditActor")
-  auditApprovals AuditLog[]       @relation("AuditApprover")
+  sales                 Sale[]
+  cashSessions          CashSession[]
+  stockMovements        StockMovement[]
+  cashMovements         CashMovement[]
+  saleReturns           SaleReturn[]
+  overrides             UserPermission[]
+  auditActions          AuditLog[]             @relation("AuditActor")
+  auditApprovals        AuditLog[]             @relation("AuditApprover")
+  receivableSettlements ReceivableSettlement[]
+  payableSettlements    PayableSettlement[]
+  payablesCreated       Payable[]
+  loyaltyEntries        LoyaltyEntry[]
+  dailyClosings         DailyClosing[]         @relation("DailyClosingClosedBy")
+  dailyClosingsReopened DailyClosing[]         @relation("DailyClosingReopenedBy")
 
   @@index([roleId])
 }
@@ -198,12 +270,13 @@ model AppSetting {
 // ---------------------------------------------------------------------------
 
 model Category {
-  id       String     @id @default(uuid())
-  name     String
-  parentId String?
-  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children Category[] @relation("CategoryTree")
-  products Product[]
+  id         String      @id @default(uuid())
+  name       String
+  parentId   String?
+  parent     Category?   @relation("CategoryTree", fields: [parentId], references: [id])
+  children   Category[]  @relation("CategoryTree")
+  products   Product[]
+  promotions Promotion[]
 
   createdAt DateTime @default(now())
 }
@@ -225,23 +298,23 @@ model TaxGroup {
   description String?
 
   products  Product[]
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 model Product {
-  id          String   @id @default(uuid())
-  sku         String   @unique
-  barcode     String?  @unique
+  id          String      @id @default(uuid())
+  sku         String      @unique
+  barcode     String?     @unique
   name        String
   description String?
-  unit        String   @default("UN")
+  unit        String      @default("UN")
   /// UNIT: quantidade inteira. WEIGHT: preco e por unidade de peso (kg) e a
   /// quantidade vem da balanca (peso embutido no EAN-13 de prefixo 2).
   pricingMode PricingMode @default(UNIT)
-  price       Decimal  @db.Decimal(12, 2)
-  cost        Decimal? @db.Decimal(12, 2)
+  price       Decimal     @db.Decimal(12, 2)
+  cost        Decimal?    @db.Decimal(12, 2)
   imageUrl    String?
-  active      Boolean  @default(true)
+  active      Boolean     @default(true)
 
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id])
@@ -252,6 +325,7 @@ model Product {
   saleItems      SaleItem[]
   stockMovements StockMovement[]
   returnItems    SaleReturnItem[]
+  promotions     Promotion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -260,6 +334,53 @@ model Product {
 // ---------------------------------------------------------------------------
 // Estoque
 // ---------------------------------------------------------------------------
+
+/// Regra de desconto automatico aplicada pelo servidor no fechamento da venda.
+///
+/// O PDV nunca decide desconto de promocao: ele pode simular
+/// (POST /promotions/simulate) para mostrar ao cliente, mas o valor que vale e
+/// o recalculado em SalesService.create. Preco e desconto vindos do cliente
+/// continuam sendo ignorados.
+model Promotion {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  active      Boolean @default(true)
+
+  kind  PromotionKind
+  scope PromotionScope
+
+  /// Alvo quando scope = PRODUCT.
+  productId  String?
+  product    Product?  @relation(fields: [productId], references: [id])
+  /// Alvo quando scope = CATEGORY.
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  /// PERCENT: 0-100. AMOUNT: R$ por unidade. FIXED_PRICE: preco por unidade.
+  value  Decimal? @db.Decimal(12, 2)
+  /// BUY_X_PAY_Y: leve `buyQty`, pague `payQty`.
+  buyQty Int?
+  payQty Int?
+
+  /// Quantidade minima do item para a regra valer.
+  minQuantity Decimal? @db.Decimal(12, 3)
+
+  /// Vigencia. Nulo = sem limite daquele lado.
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  /// Maior prioridade vence quando duas regras alcancam o mesmo item.
+  /// Empate desempata pelo maior desconto para o cliente.
+  priority Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, startsAt, endsAt])
+  @@index([scope, productId])
+  @@index([scope, categoryId])
+}
 
 model StockItem {
   id          String   @id @default(uuid())
@@ -300,7 +421,13 @@ model Customer {
   notes     String?
   createdAt DateTime  @default(now())
 
-  sales Sale[]
+  /// Teto do crediario deste cliente. 0 = nao compra a prazo. O limite e
+  /// consumido pelos titulos em aberto, nao pelo historico de compras.
+  creditLimit Decimal @default(0) @db.Decimal(12, 2)
+
+  sales       Sale[]
+  receivables Receivable[]
+  loyalty     LoyaltyAccount?
 
   @@index([document])
 }
@@ -334,26 +461,34 @@ model Sale {
   cashMovements  CashMovement[]
   returns        SaleReturn[]
 
-  createdAt    DateTime  @default(now())
-  completedAt  DateTime?
-  canceledAt   DateTime?
-  cancelReason String?
+  createdAt      DateTime       @default(now())
+  completedAt    DateTime?
+  canceledAt     DateTime?
+  cancelReason   String?
+  receivables    Receivable[]
+  loyaltyEntries LoyaltyEntry[]
 
   @@index([status])
   @@index([createdAt])
 }
 
 model SaleItem {
-  id          String  @id @default(uuid())
-  saleId      String
-  sale        Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product @relation(fields: [productId], references: [id])
-  description String // snapshot do nome do produto no momento da venda
-  quantity    Decimal @db.Decimal(12, 3)
-  unitPrice   Decimal @db.Decimal(12, 2) // snapshot do preco
-  discount    Decimal @default(0) @db.Decimal(12, 2)
-  total       Decimal @db.Decimal(12, 2)
+  id            String  @id @default(uuid())
+  saleId        String
+  sale          Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product @relation(fields: [productId], references: [id])
+  description   String // snapshot do nome do produto no momento da venda
+  quantity      Decimal @db.Decimal(12, 3)
+  unitPrice     Decimal @db.Decimal(12, 2) // snapshot do preco
+  /// Desconto total do item = concedido pelo operador + promocional.
+  discount      Decimal @default(0) @db.Decimal(12, 2)
+  /// Parte do desconto que veio de campanha automatica, e qual campanha foi.
+  /// Snapshot: a promocao pode ser editada ou apagada depois da venda.
+  promoDiscount Decimal @default(0) @db.Decimal(12, 2)
+  promotionId   String?
+  promotionName String?
+  total         Decimal @db.Decimal(12, 2)
 
   returnItems SaleReturnItem[]
 
@@ -407,17 +542,26 @@ model AuditLog {
 /// Devolucao (total ou parcial) de itens de uma venda ja concluida. Nao altera
 /// a venda original — repoe estoque e, se em dinheiro, sai do caixa como sangria.
 model SaleReturn {
-  id            String       @id @default(uuid())
-  number        Int          @unique
+  id            String        @id @default(uuid())
+  number        Int           @unique
   saleId        String
-  sale          Sale         @relation(fields: [saleId], references: [id])
+  sale          Sale          @relation(fields: [saleId], references: [id])
   operatorId    String
-  operator      User         @relation(fields: [operatorId], references: [id])
+  operator      User          @relation(fields: [operatorId], references: [id])
   cashSessionId String?
-  cashSession   CashSession? @relation(fields: [cashSessionId], references: [id])
+  cashSession   CashSession?  @relation(fields: [cashSessionId], references: [id])
   reason        String
   refundMethod  PaymentMethod
-  total         Decimal      @db.Decimal(12, 2)
+  total         Decimal       @db.Decimal(12, 2)
+  /// Quanto desta devolucao saiu de fato da gaveta.
+  ///
+  /// Nem tudo que a venda cobrou virou dinheiro: crediario e uma promessa e o
+  /// resgate de fidelidade e credito da propria loja. A devolucao rateia o
+  /// total pelas formas originais, e so esta fatia sangra o caixa. O valor fica
+  /// GRAVADO, e nao recalculado depois, pela mesma razao de
+  /// `SaleItem.promoDiscount`: o numero que explica o dinheiro tem de
+  /// sobreviver a qualquer mudanca posterior na venda ou na regra.
+  cashRefunded  Decimal       @default(0) @db.Decimal(12, 2)
 
   items     SaleReturnItem[]
   createdAt DateTime         @default(now())
@@ -490,9 +634,11 @@ model CashSession {
   closedAt              DateTime?
   notes                 String?
 
-  sales     Sale[]
-  movements CashMovement[]
-  returns   SaleReturn[]
+  sales                 Sale[]
+  movements             CashMovement[]
+  returns               SaleReturn[]
+  receivableSettlements ReceivableSettlement[]
+  payableSettlements    PayableSettlement[]
 
   @@index([status])
 }
@@ -511,6 +657,47 @@ model CashMovement {
   createdAt     DateTime         @default(now())
 
   @@index([cashSessionId])
+}
+
+/// Fechamento financeiro do dia: consolida TODOS os turnos de TODOS os
+/// terminais num unico retrato e trava o dia.
+///
+/// O X/Z fecha um turno; este fecha o dia da loja. Sem ele, uma loja com tres
+/// caixas so tem tres leituras Z que ninguem soma, e a diferenca de gaveta de
+/// um operador se dilui.
+///
+/// O `snapshot` guarda os numeros como estavam no momento do fechamento. Nao e
+/// redundancia: recalcular no futuro devolve outro numero (uma devolucao
+/// lancada depois, um titulo baixado) e o fechamento deixaria de ser prova do
+/// que foi conferido no dia. A reabertura e auditada e mantem o retrato
+/// anterior ate que o dia seja fechado de novo.
+model DailyClosing {
+  id             String             @id @default(uuid())
+  /// Dia de operacao no fuso do servidor, sem hora. Um fechamento por dia.
+  businessDate   DateTime           @unique @db.Date
+  status         DailyClosingStatus @default(FECHADO)
+  closedAt       DateTime           @default(now())
+  closedById     String
+  closedBy       User               @relation("DailyClosingClosedBy", fields: [closedById], references: [id])
+  /// Retrato completo do dia no momento do fechamento (JSON).
+  snapshot       Json
+  /// Campos desnormalizados do snapshot, para listar sem abrir o JSON.
+  totalSales     Decimal            @db.Decimal(12, 2)
+  totalCashIn    Decimal            @db.Decimal(12, 2)
+  cashDifference Decimal            @db.Decimal(12, 2)
+  sessionCount   Int                @default(0)
+  notes          String?
+  /// Quantas vezes o dia foi fechado. Fechar de novo depois de reabrir soma 1.
+  version        Int                @default(1)
+  reopenedAt     DateTime?
+  reopenedById   String?
+  reopenedBy     User?              @relation("DailyClosingReopenedBy", fields: [reopenedById], references: [id])
+  reopenReason   String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @default(now()) @updatedAt
+
+  @@index([status])
+  @@index([businessDate])
 }
 
 // ---------------------------------------------------------------------------
@@ -562,4 +749,176 @@ model License {
   customer  String
   active    Boolean  @default(true)
   updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Financeiro — contas a receber (crediario), contas a pagar e fluxo de caixa
+//
+// Um titulo e uma PROMESSA de dinheiro, com data. O caixa (CashSession) conta
+// o que ja passou pela gaveta; aqui fica o que ainda vai passar — e o que saiu
+// por fora dela (despesa paga por transferencia, por exemplo). Sao as duas
+// metades do fluxo de caixa: realizado e projetado.
+// ---------------------------------------------------------------------------
+
+/// Parcela de crediario a receber de um cliente. Nasce no fechamento da venda,
+/// uma linha por parcela, e so morre por baixa ou por cancelamento da venda.
+model Receivable {
+  id           String      @id @default(uuid())
+  number       Int         @unique
+  customerId   String
+  customer     Customer    @relation(fields: [customerId], references: [id])
+  /// Titulo avulso (renegociacao, acerto) nao tem venda de origem.
+  saleId       String?
+  sale         Sale?       @relation(fields: [saleId], references: [id])
+  description  String
+  /// Parcela `installment` de `installments`.
+  installment  Int         @default(1)
+  installments Int         @default(1)
+  amount       Decimal     @db.Decimal(12, 2)
+  /// Soma das baixas. Nunca passa de `amount`.
+  paidAmount   Decimal     @default(0) @db.Decimal(12, 2)
+  dueDate      DateTime
+  status       TitleStatus @default(ABERTO)
+  paidAt       DateTime?
+  canceledAt   DateTime?
+  note         String?
+
+  settlements ReceivableSettlement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId, status])
+  @@index([status, dueDate])
+  @@index([saleId])
+}
+
+/// Baixa (total ou parcial) de um titulo a receber.
+model ReceivableSettlement {
+  id            String        @id @default(uuid())
+  receivableId  String
+  receivable    Receivable    @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  amount        Decimal       @db.Decimal(12, 2)
+  method        PaymentMethod
+  /// Turno em que o dinheiro entrou, quando a baixa foi em especie no balcao.
+  cashSessionId String?
+  cashSession   CashSession?  @relation(fields: [cashSessionId], references: [id])
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  note          String?
+  createdAt     DateTime      @default(now())
+
+  @@index([receivableId])
+  @@index([createdAt])
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  document  String?
+  phone     String?
+  email     String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payables Payable[]
+}
+
+/// Despesa a pagar. `recurrence` descreve a periodicidade da conta; a proxima
+/// competencia e gerada na baixa, nunca em lote antecipado — projetar doze
+/// meses de aluguel como titulo em aberto suja o fluxo de caixa.
+model Payable {
+  id          String            @id @default(uuid())
+  number      Int               @unique
+  supplierId  String?
+  supplier    Supplier?         @relation(fields: [supplierId], references: [id])
+  description String
+  /// Categoria da despesa (aluguel, energia, folha, mercadoria, ...). Texto
+  /// livre de propósito: cada loja tem o seu plano de contas informal.
+  category    String            @default("Geral")
+  amount      Decimal           @db.Decimal(12, 2)
+  paidAmount  Decimal           @default(0) @db.Decimal(12, 2)
+  dueDate     DateTime
+  status      TitleStatus       @default(ABERTO)
+  recurrence  PayableRecurrence @default(NENHUMA)
+  paidAt      DateTime?
+  canceledAt  DateTime?
+  note        String?
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id])
+
+  settlements PayableSettlement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, dueDate])
+  @@index([supplierId])
+  @@index([category])
+}
+
+model PayableSettlement {
+  id            String        @id @default(uuid())
+  payableId     String
+  payable       Payable       @relation(fields: [payableId], references: [id], onDelete: Cascade)
+  amount        Decimal       @db.Decimal(12, 2)
+  method        PaymentMethod
+  /// Turno de onde o dinheiro saiu, quando a despesa foi paga da gaveta.
+  cashSessionId String?
+  cashSession   CashSession?  @relation(fields: [cashSessionId], references: [id])
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  note          String?
+  createdAt     DateTime      @default(now())
+
+  @@index([payableId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Fidelidade (cashback em R$)
+//
+// O saldo e em REAIS, nao em pontos: ponto exige uma taxa de conversao que o
+// lojista muda e o cliente nao entende, e a primeira mudanca desvaloriza o
+// saldo de quem ja juntou. Cashback em R$ vale hoje o que valia ontem.
+// ---------------------------------------------------------------------------
+
+model LoyaltyAccount {
+  id         String   @id @default(uuid())
+  customerId String   @unique
+  /// RESTRICT, nao Cascade: apagar o cliente nao pode apagar o razao do
+  /// cashback dele — e a unica evidencia de saldo criado e consumido.
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// Saldo disponivel para resgate. Nunca negativo.
+  balance    Decimal  @default(0) @db.Decimal(12, 2)
+  earned     Decimal  @default(0) @db.Decimal(12, 2)
+  redeemed   Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  entries LoyaltyEntry[]
+}
+
+/// Razao do saldo: toda alteracao de `LoyaltyAccount.balance` tem uma linha
+/// aqui, com o saldo resultante. E o extrato que o cliente pede no balcao.
+model LoyaltyEntry {
+  id           String           @id @default(uuid())
+  accountId    String
+  account      LoyaltyAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type         LoyaltyEntryType
+  /// Positivo credita, negativo debita.
+  amount       Decimal          @db.Decimal(12, 2)
+  balanceAfter Decimal          @db.Decimal(12, 2)
+  saleId       String?
+  sale         Sale?            @relation(fields: [saleId], references: [id])
+  reason       String?
+  userId       String?
+  user         User?            @relation(fields: [userId], references: [id])
+  createdAt    DateTime         @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([saleId])
 }

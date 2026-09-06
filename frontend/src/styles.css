@@ -261,40 +261,68 @@ small {
 
 .nav-menu {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   align-content: start;
 }
 
+/* Item de navegação: ícone + rótulo na mesma linha de base. O ícone herda
+   currentColor, então acompanha o estado ativo sem regra própria. */
 .nav-item,
 .nav-subitem {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--text-soft);
   text-decoration: none;
   border-radius: 12px;
   border: 1px solid transparent;
-  transition: all 0.18s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.nav-icon {
+  flex: 0 0 auto;
+  opacity: 0.75;
 }
 
 .nav-item {
-  padding: 12px 14px;
+  padding: 11px 14px;
 }
 
 .nav-group {
   display: grid;
   gap: 4px;
+  margin-top: 6px;
 }
 
+/* Cabeçalho de grupo é botão: recolhe e expande, e a escolha persiste. */
 .nav-group-title {
-  padding: 10px 14px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 14px 4px;
+  background: none;
+  border: 0;
+  font: inherit;
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+  cursor: pointer;
+}
+
+.nav-group-title:hover {
+  color: var(--text-strong);
+}
+
+.nav-chevron {
+  font-size: 0.7rem;
+  opacity: 0.7;
 }
 
 .nav-subitem {
-  padding: 10px 14px 10px 24px;
+  padding: 10px 14px 10px 22px;
   font-size: 0.94rem;
 }
 
@@ -304,6 +332,27 @@ small {
 .nav-subitem:hover {
   background: var(--accent-soft);
   border-color: var(--accent-border);
+  color: var(--text-strong);
+}
+
+.nav-item.active .nav-icon,
+.nav-subitem.active .nav-icon {
+  opacity: 1;
+}
+
+/* "Nova venda" é a ação que o balcão repete o dia inteiro: ganha peso de
+   botão primário em vez de virar mais uma linha igual às outras. */
+.nav-primary {
+  background: var(--accent-softer);
+  border-color: var(--accent-border);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.nav-primary.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
 }
 
 .sidebar-footer {
@@ -701,4 +750,31 @@ small {
   color: var(--success-text);
   margin-bottom: 20px;
   font-size: 0.9rem;
+}
+
+/* ---------------------------------------------------------------- Licença
+   Aviso de estado da licença, no topo de toda tela. A cor sobe conforme a
+   urgência: quem está a vencer vê um lembrete; quem já perdeu módulos vê que
+   perdeu — mas em nenhum caso o caixa deixa de funcionar. */
+.license-banner {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border-left: 3px solid currentColor;
+  font-size: 0.88rem;
+}
+.license-a_vencer,
+.license-tolerancia {
+  color: #9c6717;
+  background: #f3e8d5;
+}
+.license-expirada,
+.license-invalida,
+.license-ausente {
+  color: #97392c;
+  background: #f2ddd8;
+}
+.license-desenvolvimento {
+  color: #0e6e6e;
+  background: #dbeae7;
 }

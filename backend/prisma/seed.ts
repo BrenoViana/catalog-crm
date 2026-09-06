@@ -13,8 +13,12 @@ const prisma = new PrismaClient({
 
 const hash = (plain: string) => bcrypt.hashSync(plain, 10);
 
-if (process.env.NODE_ENV === 'production') {
-  throw new Error('Seed bloqueado: NODE_ENV=production. Rode migrations e crie os usuarios manualmente.');
+// O seed APAGA vendas, pagamentos, caixa e usuarios. Exige opt-in explicito:
+// NODE_ENV ausente vale como producao, nao como desenvolvimento.
+if (process.env.NODE_ENV !== 'development') {
+  throw new Error(
+    'Seed bloqueado: ele apaga vendas, caixa e usuarios. Rode apenas com NODE_ENV=development.',
+  );
 }
 
 async function main() {

@@ -21,6 +21,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
 import { DecimalInterceptor } from '../src/common/decimal.interceptor';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 const envPath = path.join(__dirname, '..', '.env');
 if (existsSync(envPath)) process.loadEnvFile(envPath);
@@ -78,6 +79,8 @@ async function main() {
   let productId = '';
   let product2Id = '';
   let scaleProductId = '';
+  let concurCancelProductId = '';
+  let concurReturnProductId = '';
   let saleId = '';
 
   try {
@@ -92,7 +95,16 @@ async function main() {
     });
     token = login.body.access_token;
 
-    // 2) Pre-condicao: caixa do admin fechado
+    // 2) Pre-condicao: caixa do admin fechado. Uma execucao interrompida no
+    //    meio deixa o turno "Caixa E2E" aberto — esse a gente mesmo fecha.
+    const leftover = await api('GET', '/cash/current');
+    if (leftover.body?.status === 'ABERTA' && leftover.body.terminal === 'Caixa E2E') {
+      await api('POST', '/cash/close', {
+        countedAmount: Number(leftover.body.expectedAmount),
+        notes: 'fechamento automatico de execucao anterior do e2e',
+      });
+    }
+
     const pre = await api('GET', '/cash/current');
     check('nenhum caixa aberto para o admin (pre-condicao)', () => {
       assert.equal(
@@ -186,6 +198,10 @@ async function main() {
     // 7) Estoque baixou 2 -> 3
     const stockDown = await api('GET', `/products/${productId}`);
     check('estoque do produto baixou para 3', () => {
+      assert.ok(
+        stockDown.body?.stock,
+        `GET /products/:id sem estoque (status ${stockDown.status}): ${JSON.stringify(stockDown.body)}`,
+      );
       assert.equal(Number(stockDown.body.stock.quantity), 3);
     });
 
@@ -351,6 +367,97 @@ async function main() {
       assert.equal(Number(stock2Back.body.stock.quantity), 5);
     });
 
+    // 7h-2) SEC-047: dois cancelamentos concorrentes da MESMA venda nao podem
+    // dobrar o estorno de estoque nem a sangria de caixa. Produto e valores
+    // proprios do teste, e o resultado e neutro em caixa/estoque no final
+    // (venda + um unico cancelamento), para nao afetar as asserções absolutas
+    // de saldo mais adiante no arquivo.
+    const concurCancelProduct = await api('POST', '/products', {
+      sku: `${sku}-RACE-CANCEL`,
+      name: 'Produto E2E — corrida de cancelamento',
+      price: 10,
+      unit: 'UN',
+      initialStock: 5,
+      minStock: 1,
+    });
+    concurCancelProductId = concurCancelProduct.body.id;
+    const cashBeforeCancelRace = await api('GET', '/cash/current');
+    const cancelRaceSale = await api('POST', '/sales', {
+      items: [{ productId: concurCancelProductId, quantity: 2 }],
+      payments: [{ method: 'DINHEIRO', amount: 20 }],
+    });
+    const [cancelRaceA, cancelRaceB] = await Promise.all([
+      api('POST', `/sales/${cancelRaceSale.body.id}/cancel`, { reason: 'corrida A' }),
+      api('POST', `/sales/${cancelRaceSale.body.id}/cancel`, { reason: 'corrida B' }),
+    ]);
+    const stockAfterCancelRace = await api('GET', `/products/${concurCancelProductId}`);
+    const cashAfterCancelRace = await api('GET', '/cash/current');
+    check('dois cancelamentos simultaneos da mesma venda: um 2xx e um 400', () => {
+      const statuses = [cancelRaceA.status, cancelRaceB.status].sort((a, b) => a - b);
+      assert.deepEqual(
+        statuses,
+        [201, 400],
+        `esperado [201,400], recebido ${JSON.stringify([cancelRaceA.status, cancelRaceB.status])}`,
+      );
+    });
+    check('estoque volta a exatamente 5 apos a corrida (nao 7, SEC-047)', () => {
+      assert.equal(Number(stockAfterCancelRace.body.stock.quantity), 5);
+    });
+    check('caixa recua ao valor de antes da venda: uma unica sangria (SEC-047)', () => {
+      assert.equal(
+        Number(cashAfterCancelRace.body.expectedAmount),
+        Number(cashBeforeCancelRace.body.expectedAmount),
+      );
+    });
+
+    // 7h-3) SEC-048: duas devolucoes concorrentes do MESMO item nao podem
+    // devolver mais do que foi vendido, nem duplicar a sangria.
+    const concurReturnProduct = await api('POST', '/products', {
+      sku: `${sku}-RACE-RETURN`,
+      name: 'Produto E2E — corrida de devolucao',
+      price: 10,
+      unit: 'UN',
+      initialStock: 5,
+      minStock: 1,
+    });
+    concurReturnProductId = concurReturnProduct.body.id;
+    const cashBeforeReturnRace = await api('GET', '/cash/current');
+    const returnRaceSale = await api('POST', '/sales', {
+      items: [{ productId: concurReturnProductId, quantity: 1 }],
+      payments: [{ method: 'DINHEIRO', amount: 10 }],
+    });
+    const returnRaceItemId = returnRaceSale.body.items?.[0]?.id;
+    const [returnRaceA, returnRaceB] = await Promise.all([
+      api('POST', `/sales/${returnRaceSale.body.id}/returns`, {
+        items: [{ saleItemId: returnRaceItemId, quantity: 1 }],
+        reason: 'corrida A',
+        refundMethod: 'DINHEIRO',
+      }),
+      api('POST', `/sales/${returnRaceSale.body.id}/returns`, {
+        items: [{ saleItemId: returnRaceItemId, quantity: 1 }],
+        reason: 'corrida B',
+        refundMethod: 'DINHEIRO',
+      }),
+    ]);
+    const stockAfterReturnRace = await api('GET', `/products/${concurReturnProductId}`);
+    const cashAfterReturnRace = await api('GET', '/cash/current');
+    check('duas devolucoes simultaneas do mesmo item: uma 2xx e uma 400 (SEC-048)', () => {
+      const statuses = [returnRaceA.status, returnRaceB.status].sort((a, b) => a - b);
+      assert.ok(
+        statuses[1] === 400 && (statuses[0] === 200 || statuses[0] === 201),
+        `esperado uma 2xx e uma 400, recebido ${JSON.stringify([returnRaceA.status, returnRaceB.status])}`,
+      );
+    });
+    check('estoque devolvido uma unica vez: volta a 5, nao a 6 (SEC-048)', () => {
+      assert.equal(Number(stockAfterReturnRace.body.stock.quantity), 5);
+    });
+    check('caixa recua ao valor de antes da venda: uma unica sangria de devolucao (SEC-048)', () => {
+      assert.equal(
+        Number(cashAfterReturnRace.body.expectedAmount),
+        Number(cashBeforeReturnRace.body.expectedAmount),
+      );
+    });
+
     // 7i) Item por peso: preco por kg, quantidade fracionaria vinda da balanca.
     const scaleProduct = await api('POST', '/products', {
       sku: skuScale,
@@ -462,6 +569,132 @@ async function main() {
       assert.equal(opDash3.status, 403);
     });
 
+    // 7l) Ciclo de vida do usuario: criar, renomear e trocar senha.
+    const prisma = app.get(PrismaService);
+    const E2E_USER = 'e2e.caixa';
+    const E2E_USER_RENAMED = 'e2e.caixa.novo';
+    /** Remove o usuario de teste junto com a trilha que ele mesmo assinou. */
+    const dropE2eUsers = async () => {
+      const stale = await prisma.user.findMany({
+        where: { username: { in: [E2E_USER, E2E_USER_RENAMED] } },
+        select: { id: true },
+      });
+      if (!stale.length) return;
+      const ids = stale.map((u) => u.id);
+      await prisma.auditLog.deleteMany({
+        where: { OR: [{ actorId: { in: ids } }, { approverId: { in: ids } }] },
+      });
+      await prisma.user.deleteMany({ where: { id: { in: ids } } });
+    };
+
+    // Uma execucao interrompida antes da limpeza nao pode contaminar esta.
+    await dropE2eUsers();
+    const operatorRole = roles.body.find((r: any) => r.key === 'OPERADOR');
+
+    const created = await api('POST', '/access/users', {
+      username: E2E_USER,
+      name: 'Caixa E2E',
+      password: 'senha-inicial-1',
+      roleId: operatorRole.id,
+    });
+    const newUserId = created.body?.id;
+    check('POST /access/users cria usuario sem devolver o hash da senha', () => {
+      assert.equal(created.status, 201);
+      assert.equal(created.body.username, E2E_USER);
+      assert.equal(created.body.accessRole.key, 'OPERADOR');
+      assert.ok(!('passwordHash' in created.body), 'hash da senha vazou na resposta');
+    });
+
+    const dup = await api('POST', '/access/users', {
+      username: E2E_USER,
+      name: 'Outro Caixa',
+      password: 'senha-inicial-1',
+      roleId: operatorRole.id,
+    });
+    const weak = await api('POST', '/access/users', {
+      username: 'e2e.fraco',
+      name: 'Senha Fraca',
+      password: '123',
+      roleId: operatorRole.id,
+    });
+    const badLogin = await api('POST', '/access/users', {
+      username: 'ab',
+      name: 'Login Curto',
+      password: 'senha-inicial-1',
+      roleId: operatorRole.id,
+    });
+    check('POST /access/users recusa login repetido, senha curta e login invalido', () => {
+      assert.equal(dup.status, 400);
+      assert.equal(weak.status, 400);
+      assert.equal(badLogin.status, 400);
+    });
+
+    const firstLogin = await api('POST', '/auth/login', {
+      username: E2E_USER,
+      password: 'senha-inicial-1',
+    });
+    check('usuario recem-criado ja entra com o papel escolhido', () => {
+      assert.equal(firstLogin.status, 201);
+      assert.ok(firstLogin.body.access_token, 'sem access_token');
+      assert.ok(firstLogin.body.permissions.includes('sales.create'));
+      assert.ok(!firstLogin.body.permissions.includes('users.manage'));
+    });
+
+    const renamed = await api('PATCH', `/access/users/${newUserId}`, {
+      name: 'Caixa E2E Renomeado',
+      username: E2E_USER_RENAMED,
+    });
+    const takeAdminLogin = await api('PATCH', `/access/users/${newUserId}`, {
+      username: 'admin',
+    });
+    check('PATCH /access/users/:id renomeia e barra login ja usado', () => {
+      assert.equal(renamed.status, 200);
+      assert.equal(renamed.body.username, E2E_USER_RENAMED);
+      assert.equal(renamed.body.name, 'Caixa E2E Renomeado');
+      assert.equal(takeAdminLogin.status, 400);
+    });
+
+    const reset = await api('PUT', `/access/users/${newUserId}/password`, {
+      password: 'senha-trocada-2',
+    });
+    const oldPass = await api('POST', '/auth/login', {
+      username: E2E_USER_RENAMED,
+      password: 'senha-inicial-1',
+    });
+    const newPass = await api('POST', '/auth/login', {
+      username: E2E_USER_RENAMED,
+      password: 'senha-trocada-2',
+    });
+    check('admin redefine a senha de outro usuario e a antiga deixa de valer', () => {
+      assert.equal(reset.status, 200);
+      assert.equal(oldPass.status, 401);
+      assert.equal(newPass.status, 201);
+    });
+
+    // Trocar a PROPRIA senha exige a atual, mesmo sem users.manage.
+    const adminTokenUsers = token;
+    token = newPass.body.access_token;
+    const wrongCurrent = await api('PUT', '/access/me/password', {
+      password: 'senha-final-3',
+      currentPassword: 'errada',
+    });
+    const rightCurrent = await api('PUT', '/access/me/password', {
+      password: 'senha-final-3',
+      currentPassword: 'senha-trocada-2',
+    });
+    token = adminTokenUsers;
+    const finalLogin = await api('POST', '/auth/login', {
+      username: E2E_USER_RENAMED,
+      password: 'senha-final-3',
+    });
+    check('troca da propria senha exige a senha atual correta', () => {
+      assert.equal(wrongCurrent.status, 400);
+      assert.equal(rightCurrent.status, 200);
+      assert.equal(finalLogin.status, 201);
+    });
+
+    await dropE2eUsers();
+
     // Configuracoes do sistema vivem no banco e sao editaveis.
     const settingsBefore = await api('GET', '/app-settings');
     const original = settingsBefore.body.find((r: any) => r.key === 'sales.maxInstallments');
@@ -484,13 +717,274 @@ async function main() {
       assert.equal(invalid.status, 400, 'valor fora do intervalo deveria ser recusado');
     });
 
-    // 7l) Supervisao: o operador esbarra no teto e um gerente libera na hora.
-    const adminToken3 = token;
-    const opLogin2 = await api('POST', '/auth/login', {
+    // Daqui se afrouxa o rate limit do login: alterar configuracao tem de doer
+    // na trilha. Sem isto, quem desliga a defesa nao deixa rastro.
+    const auditSettings = await api('GET', '/access/audit?action=appSettings.update');
+    check('alteracao de configuracao entra na trilha com antes e depois', () => {
+      assert.equal(auditSettings.status, 200);
+      const linha = auditSettings.body.find((a: any) =>
+        (a.detail?.mudancas ?? []).some(
+          (m: any) => m.chave === 'sales.maxInstallments',
+        ),
+      );
+      assert.ok(linha, 'sem registro de appSettings.update');
+      assert.equal(linha.actor.username, 'admin');
+      const mud = linha.detail.mudancas.find(
+        (m: any) => m.chave === 'sales.maxInstallments',
+      );
+      assert.ok('de' in mud && 'para' in mud, 'trilha sem antes/depois');
+    });
+
+    // 7p) Motor de promocoes: quem decide o desconto e o SERVIDOR.
+    // Todas as vendas deste bloco pagam em PIX (nao mexem na gaveta) e sao
+    // canceladas ao final, para nao deslocar o fechamento do turno.
+    const promoIds: string[] = [];
+    const promoSales: string[] = [];
+
+    // 10% no 2o produto (preco 10) — PERCENT por produto.
+    const promoPercent = await api('POST', '/promotions', {
+      name: 'E2E 10% no produto',
+      kind: 'PERCENT',
+      scope: 'PRODUCT',
+      productId: product2Id,
+      value: 10,
+      priority: 1,
+    });
+    if (promoPercent.body?.id) promoIds.push(promoPercent.body.id);
+
+    const sim = await api('POST', '/promotions/simulate', {
+      items: [{ productId: product2Id, quantity: 2 }],
+    });
+    check('simulacao devolve o desconto da campanha ativa', () => {
+      assert.equal(promoPercent.status, 201);
+      assert.equal(sim.status, 201);
+      assert.equal(sim.body.total, 2, '10% de 2 x R$10 deveria dar R$2');
+      assert.equal(sim.body.lines[0].promotionName, 'E2E 10% no produto');
+      assert.equal(sim.body.lines[0].index, 0);
+    });
+
+    const promoSale = await api('POST', '/sales', {
+      items: [{ productId: product2Id, quantity: 2 }],
+      payments: [{ method: 'PIX', amount: 18 }],
+    });
+    if (promoSale.body?.id) promoSales.push(promoSale.body.id);
+    const promoSaleFull = await api('GET', `/sales/${promoSale.body?.id}`);
+    check('venda aplica a promocao sem o cliente pedir e registra a campanha', () => {
+      assert.equal(promoSale.status, 201);
+      assert.equal(Number(promoSale.body.total), 18, 'total deveria sair 20 - 2');
+      const item = promoSaleFull.body.items[0];
+      assert.equal(Number(item.promoDiscount), 2);
+      assert.equal(item.promotionName, 'E2E 10% no produto');
+      assert.equal(Number(item.discount), 2);
+    });
+
+    // Pagar so o valor cheio menos a promocao: se o servidor NAO aplicasse o
+    // desconto, este pagamento seria insuficiente e a venda cairia em 400.
+    const promoUnderpay = await api('POST', '/sales', {
+      items: [{ productId: product2Id, quantity: 2 }],
+      payments: [{ method: 'PIX', amount: 17.99 }],
+    });
+    check('pagamento abaixo do total ja promocionado ainda e recusado', () => {
+      assert.equal(promoUnderpay.status, 400);
+    });
+
+    // Leve 3 pague 2 vence a de 10% por prioridade maior.
+    const promo3x2 = await api('POST', '/promotions', {
+      name: 'E2E leve 3 pague 2',
+      kind: 'BUY_X_PAY_Y',
+      scope: 'PRODUCT',
+      productId: product2Id,
+      buyQty: 3,
+      payQty: 2,
+      priority: 5,
+    });
+    if (promo3x2.body?.id) promoIds.push(promo3x2.body.id);
+    const sim3x2 = await api('POST', '/promotions/simulate', {
+      items: [{ productId: product2Id, quantity: 3 }],
+    });
+    check('promocoes nao se acumulam: vence a de maior prioridade', () => {
+      assert.equal(promo3x2.status, 201);
+      assert.equal(sim3x2.body.total, 10, 'leve 3 pague 2 deveria dar 1 unidade gratis');
+      assert.equal(sim3x2.body.lines[0].promotionName, 'E2E leve 3 pague 2');
+    });
+
+    const invalidPromo = await api('POST', '/promotions', {
+      name: 'E2E incoerente',
+      kind: 'BUY_X_PAY_Y',
+      scope: 'PRODUCT',
+      productId: product2Id,
+      buyQty: 2,
+      payQty: 3,
+    });
+    const invalidPercent = await api('POST', '/promotions', {
+      name: 'E2E percentual absurdo',
+      kind: 'PERCENT',
+      scope: 'ALL',
+      value: 150,
+    });
+    check('promocao incoerente e recusada na criacao, nao no balcao', () => {
+      assert.equal(invalidPromo.status, 400, 'payQty >= buyQty deveria falhar');
+      assert.equal(invalidPercent.status, 400, 'percentual > 100 deveria falhar');
+    });
+
+    // O teto de desconto do operador vale para o que ELE concede. Uma campanha
+    // agressiva da loja nao pode travar o caixa.
+    const adminTokenPromo = token;
+    const promoBig = await api('POST', '/promotions', {
+      name: 'E2E 50% catalogo todo',
+      kind: 'PERCENT',
+      scope: 'ALL',
+      value: 50,
+      priority: 9,
+    });
+    if (promoBig.body?.id) promoIds.push(promoBig.body.id);
+    // Um unico login de operador serve os dois blocos: a suite ja roda perto do
+    // teto do rate limit de login, e um login a mais derruba o seguinte.
+    const opLoginShared = await api('POST', '/auth/login', {
       username: 'operador',
       password: 'operador',
     });
-    token = opLogin2.body.access_token;
+    check('login do operador para os blocos de promocao e supervisao', () => {
+      assert.equal(
+        opLoginShared.status,
+        201,
+        'login do operador falhou (rate limit da suite?) — os blocos seguintes dependem dele',
+      );
+      assert.ok(opLoginShared.body.access_token, 'login sem access_token');
+    });
+    token = opLoginShared.body.access_token;
+    const opPromoSale = await api('POST', '/sales', {
+      items: [{ productId: product2Id, quantity: 1 }],
+      payments: [{ method: 'PIX', amount: 5 }],
+    });
+    if (opPromoSale.body?.id) promoSales.push(opPromoSale.body.id);
+    const opCreatePromo = await api('POST', '/promotions', {
+      name: 'E2E operador nao pode',
+      kind: 'PERCENT',
+      scope: 'ALL',
+      value: 5,
+    });
+    token = adminTokenPromo;
+    check('promocao da loja nao consome o teto de desconto do operador', () => {
+      assert.equal(opPromoSale.status, 201, '50% de campanha nao pode barrar o caixa');
+      assert.equal(Number(opPromoSale.body.total), 5);
+    });
+    check('operador ve promocoes mas nao cria', () => {
+      assert.equal(opCreatePromo.status, 403);
+    });
+
+    // Desativar encerra a campanha na hora.
+    // PATCH parcial: mandar so `active` nao pode apagar o resto da regra.
+    for (const id of [promoBig.body?.id, promo3x2.body?.id, promoPercent.body?.id]) {
+      if (id) await api('PATCH', `/promotions/${id}`, { active: false });
+    }
+    const simOff = await api('POST', '/promotions/simulate', {
+      items: [{ productId: product2Id, quantity: 3 }],
+    });
+    check('campanha desativada para de valer imediatamente', () => {
+      assert.equal(simOff.body.total, 0);
+      assert.equal(simOff.body.lines.length, 0);
+    });
+
+    // SEC-029: PATCH e atualizacao PARCIAL. Corrigir o nome de uma campanha
+    // encerrada nao pode ressuscita-la valendo para sempre.
+    const comFim = await api('POST', '/promotions', {
+      name: 'E2E campanha com fim',
+      kind: 'PERCENT',
+      scope: 'PRODUCT',
+      productId: product2Id,
+      value: 20,
+      priority: 7,
+      endsAt: '2030-12-25T23:59:59.000Z',
+      active: false,
+    });
+    if (comFim.body?.id) promoIds.push(comFim.body.id);
+    const soNome = await api('PATCH', `/promotions/${comFim.body?.id}`, {
+      name: 'E2E campanha com fim (renomeada)',
+    });
+    check('PATCH parcial preserva vigencia, prioridade e estado da campanha', () => {
+      assert.equal(comFim.status, 201);
+      assert.equal(soNome.status, 200);
+      assert.equal(soNome.body.name, 'E2E campanha com fim (renomeada)');
+      assert.ok(soNome.body.endsAt, 'endsAt foi apagado pelo PATCH');
+      assert.equal(soNome.body.priority, 7, 'priority voltou ao default');
+      assert.equal(soNome.body.active, false, 'campanha desativada foi reativada');
+      assert.equal(Number(soNome.body.value), 20, 'value foi perdido');
+    });
+
+    // SEC-034: numero invalido chegava como `null`, o merge mantinha o valor
+    // antigo e a resposta era 200 — a tela dizia que salvou e a loja seguia
+    // praticando o desconto velho. Agora `null` em campo obrigatorio e 400.
+    const nulo = await api('PATCH', `/promotions/${comFim.body?.id}`, {
+      value: null,
+    });
+    const depoisDoNulo = await api('GET', '/promotions');
+    check('valor nulo no PATCH e recusado, nao aceito em silencio', () => {
+      assert.equal(nulo.status, 400, 'value:null deveria ser 400');
+      const p = depoisDoNulo.body.find((x: any) => x.id === comFim.body?.id);
+      assert.equal(Number(p.value), 20, 'campanha foi alterada apesar do 400');
+    });
+
+    // SEC-036: campo limpavel precisa poder ser LIMPO. `null` remove a data.
+    const limpaFim = await api('PATCH', `/promotions/${comFim.body?.id}`, {
+      endsAt: null,
+    });
+    check('campo limpavel aceita null e some de verdade', () => {
+      assert.equal(limpaFim.status, 200);
+      assert.equal(limpaFim.body.endsAt, null, 'endsAt continuou preenchido');
+      assert.equal(Number(limpaFim.body.value), 20, 'limpar a data mexeu no valor');
+    });
+
+    // SEC-030: a trilha precisa dizer O QUE mudou, com valor.
+    await api('PATCH', `/promotions/${comFim.body?.id}`, { value: 90 });
+    const auditUpd = await api('GET', '/access/audit?action=promotions.update');
+    check('trilha de promocao registra o valor alterado, nao so o nome do campo', () => {
+      const linha = auditUpd.body.find((a: any) =>
+        (a.detail?.mudancas ?? []).some(
+          (m: any) => m.campo === 'value' && String(m.para) === '90',
+        ),
+      );
+      assert.ok(linha, 'sem registro de promotions.update com o valor');
+      const mud = linha.detail.mudancas.find((m: any) => m.campo === 'value');
+      assert.equal(String(mud.de), '20', 'trilha sem o valor anterior');
+    });
+
+    // SEC-031: array sem teto era DoS autenticado — qualquer operador parava a loja.
+    const carrinhoAbsurdo = await api('POST', '/promotions/simulate', {
+      items: Array.from({ length: 500 }, () => ({
+        productId: product2Id,
+        quantity: 1,
+      })),
+    });
+    const carrinhoNormal = await api('POST', '/promotions/simulate', {
+      items: [{ productId: product2Id, quantity: 1 }],
+    });
+    check('simulacao recusa carrinho absurdo e aceita o normal', () => {
+      assert.equal(carrinhoAbsurdo.status, 400, 'array sem teto na simulacao');
+      assert.equal(carrinhoNormal.status, 201);
+    });
+
+    const auditPromo = await api('GET', '/access/audit?action=promotions.create');
+    check('criacao de promocao entra na trilha', () => {
+      assert.ok(
+        auditPromo.body.some((a: any) => a.detail?.nome === 'E2E 10% no produto'),
+        'sem registro de promotions.create',
+      );
+    });
+
+    // Limpeza: cancela as vendas do bloco e remove as campanhas de teste.
+    for (const id of promoSales) {
+      await api('POST', `/sales/${id}/cancel`, {
+        reason: 'limpeza do bloco de promocoes e2e',
+      }).catch(() => undefined);
+    }
+    for (const id of promoIds) {
+      await api('DELETE', `/promotions/${id}`).catch(() => undefined);
+    }
+
+    // 7l) Supervisao: o operador esbarra no teto e um gerente libera na hora.
+    const adminToken3 = token;
+    token = opLoginShared.body.access_token;
 
     const blocked = await api('POST', '/sales', {
       items: [{ productId: product2Id, quantity: 1, discount: 3 }], // 30%
@@ -550,7 +1044,23 @@ async function main() {
       { 'X-Authorization-Grant': cancelGrant.body?.token ?? '' },
     );
 
+    // Brute force da senha de supervisor: sem teto, esta rota e um oraculo de
+    // senha para qualquer usuario autenticado. O uso legitimo e raro (o gerente
+    // digita a senha uma ou duas vezes), entao o limite e baixo de proposito.
+    let bloqueio = 0;
+    for (let i = 0; i < 10 && bloqueio === 0; i++) {
+      const tentativa = await api('POST', '/access/authorize', {
+        username: 'gerente',
+        password: `chute-${i}`,
+        permission: 'sales.cancel',
+      });
+      if (tentativa.status === 429) bloqueio = 429;
+    }
+
     token = adminToken3;
+    check('rate limit corta o brute force da senha de supervisor', () => {
+      assert.equal(bloqueio, 429, 'tentativas ilimitadas em /access/authorize');
+    });
     check('supervisor libera desconto acima do teto (vale de uso unico)', () => {
       assert.equal(blocked.status, 400, 'sem liberacao deveria barrar');
       assert.equal(badPass.status, 401, 'senha errada deveria falhar');
@@ -578,6 +1088,19 @@ async function main() {
         (a: any) => a.action === 'sales.cancel' && a.approver?.username === 'gerente',
       );
       assert.ok(cancel, 'sem registro do cancelamento liberado');
+      // Tentativa recusada tambem deixa rastro: chutar senha de supervisor sem
+      // deixar registro era o que tornava a rota um oraculo silencioso.
+      const negada = audit.body.find(
+        (a: any) =>
+          a.action === 'authorization.denied' &&
+          a.detail?.motivo === 'credenciais invalidas',
+      );
+      assert.ok(negada, 'senha errada de supervisor nao entrou na trilha');
+      const auto = audit.body.find(
+        (a: any) =>
+          a.action === 'authorization.denied' && a.detail?.motivo === 'auto-liberacao',
+      );
+      assert.ok(auto, 'auto-liberacao recusada nao entrou na trilha');
       assert.ok(
         audit.body.some((a: any) => a.action === 'authorization.grant'),
         'sem registro da liberacao em si',
@@ -618,6 +1141,122 @@ async function main() {
       );
     });
 
+    // 10a) Porta de pagamento: provedores registrados.
+    const gateways = await api('GET', '/payments/gateways');
+    check('gateways ativos: balcao (dinheiro) e eletronico simulado (cartao/pix)', () => {
+      assert.equal(gateways.status, 200);
+      const names = gateways.body.map((g: any) => g.name).sort();
+      assert.deepEqual(names, ['balcao', 'fake-eletronico']);
+      const balcao = gateways.body.find((g: any) => g.name === 'balcao');
+      const eletronico = gateways.body.find((g: any) => g.name === 'fake-eletronico');
+      assert.ok(balcao.methods.includes('DINHEIRO'), 'balcao nao atende DINHEIRO');
+      assert.ok(eletronico.methods.includes('PIX'), 'eletronico nao atende PIX');
+      assert.ok(!balcao.methods.includes('PIX'), 'balcao nao deveria atender PIX');
+    });
+
+    // 10b) Pagamento em dinheiro nao passa por gateway externo: nasce e fica
+    // CONFIRMADO, com o provedor de balcao gravado.
+    const cashPayments = await api('GET', `/payments/sale/${saleId}`);
+    check('pagamento em dinheiro -> CONFIRMADO pelo provedor de balcao', () => {
+      assert.equal(cashPayments.status, 200);
+      const p = cashPayments.body[0];
+      assert.equal(p.provider, 'balcao');
+      assert.ok(!p.authorizationCode, 'dinheiro nao deveria ter codigo de autorizacao');
+    });
+
+    // 10b-2) A venda cancelada em (8) teve os pagamentos estornados.
+    check('cancelamento da venda estorna os pagamentos', () => {
+      const p = cashPayments.body[0];
+      assert.equal(p.status, 'ESTORNADO');
+      assert.ok(p.refundedAt, 'estorno sem refundedAt');
+    });
+
+    // 10c) Pagamento eletronico passa pelo gateway e volta com autorizacao.
+    const pixSale = await api('POST', '/sales', {
+      items: [{ productId, quantity: 1 }],
+      payments: [{ method: 'PIX', amount: 10 }],
+      terminal: 'Caixa E2E',
+    });
+    check('venda em PIX -> autorizada pelo gateway, com NSU e QR', () => {
+      assert.equal(pixSale.status, 201);
+      const p = pixSale.body.payments[0];
+      assert.equal(p.method, 'PIX');
+      assert.equal(p.status, 'CONFIRMADO');
+      assert.equal(p.provider, 'fake-eletronico');
+      assert.ok(/^\d{6}$/.test(p.authorizationCode ?? ''), 'sem codigo de autorizacao de 6 digitos');
+      assert.ok((p.qrCode ?? '').startsWith('000201'), 'QR do Pix fora do formato BR Code');
+      assert.ok(p.authorizedAt, 'pagamento autorizado sem authorizedAt');
+      // externalId e mapa da integracao: nunca sai para o balcao (SEC-025).
+      assert.strictEqual(p.externalId, undefined, 'externalId nao deveria ser exposto');
+    });
+
+    // 10c-1b) Consulta posterior nao devolve o QR de uma cobranca ja liquidada.
+    const pixLater = await api('GET', `/payments/sale/${pixSale.body.id}`);
+    check('consulta posterior mascara o QR ja liquidado e nao expoe externalId', () => {
+      assert.strictEqual(pixLater.body[0].qrCode, null);
+      assert.strictEqual(pixLater.body[0].externalId, undefined);
+      assert.ok(pixLater.body[0].authorizationCode, 'perdeu o codigo de autorizacao');
+    });
+
+    // 10c-2) PIX nao entra na gaveta: o saldo em dinheiro nao se mexe.
+    const afterPix = await api('GET', '/cash/current');
+    check('venda em PIX nao altera o dinheiro em gaveta', () => {
+      assert.equal(Number(afterPix.body.expectedAmount), 100);
+    });
+
+    // 10c-3) Cancelar devolve estoque e estorna o pagamento eletronico.
+    const cancelPix = await api('POST', `/sales/${pixSale.body.id}/cancel`, {
+      reason: 'Teste de estorno eletronico',
+    });
+    const pixPayments = await api('GET', `/payments/sale/${pixSale.body.id}`);
+    check('cancelamento estorna o pagamento eletronico no gateway', () => {
+      assert.equal(cancelPix.status, 201);
+      assert.equal(pixPayments.body[0].status, 'ESTORNADO');
+      assert.ok(pixPayments.body[0].refundedAt, 'estorno eletronico sem refundedAt');
+    });
+
+    // 10c-4) O X nao conta como recebido o pagamento ja estornado.
+    const readXAfterRefund = await api('GET', '/cash/report');
+    check('leitura X nao soma pagamento estornado como recebido', () => {
+      const pix = readXAfterRefund.body.byPaymentMethod.find((m: any) => m.method === 'PIX');
+      assert.ok(!pix, 'PIX estornado ainda aparece como recebido no X');
+      // O provedor simulado nunca nega por entrada alcancavel pela API
+      // (@IsPositive barra o unico insumo que o faz negar), entao aqui so da
+      // para conferir o formato. A cobertura real do caminho NEGADO depende de
+      // um provedor de teste injetavel — ver SEC-022 no baseline.
+      assert.ok(Array.isArray(readXAfterRefund.body.unsettledPayments), 'sem unsettledPayments no X');
+    });
+
+    // 10d) Teto de dinheiro na gaveta (AppSetting cash.drawerLimit).
+    const drawerOff = await api('GET', '/cash/current');
+    check('sem teto configurado, a gaveta nunca acusa excesso', () => {
+      assert.equal(drawerOff.body.drawer.limit, 0);
+      assert.equal(drawerOff.body.drawer.exceeded, false);
+    });
+
+    await api('PUT', '/app-settings', {
+      settings: [{ key: 'cash.drawerLimit', value: 60 }],
+    });
+    const drawerOn = await api('GET', '/cash/current');
+    check('gaveta com 100 e teto 60 -> excedida, sugere sangria de 40', () => {
+      assert.equal(Number(drawerOn.body.drawer.limit), 60);
+      assert.equal(Number(drawerOn.body.drawer.cashOnHand), 100);
+      assert.equal(drawerOn.body.drawer.exceeded, true);
+      assert.equal(Number(drawerOn.body.drawer.suggestedWithdrawal), 40);
+    });
+
+    // 10d-2) A leitura X do turno aberto carrega o mesmo estado da gaveta.
+    const readXDrawer = await api('GET', '/cash/report');
+    check('leitura X traz o estado da gaveta', () => {
+      assert.equal(readXDrawer.body.drawer.exceeded, true);
+      assert.equal(Number(readXDrawer.body.drawer.suggestedWithdrawal), 40);
+    });
+
+    // Devolve a configuracao ao padrao para nao contaminar o ambiente.
+    await api('PUT', '/app-settings', {
+      settings: [{ key: 'cash.drawerLimit', value: 0 }],
+    });
+
     // 11) Fechar caixa contando R$ 100 -> diferenca 0
     const close = await api('POST', '/cash/close', { countedAmount: 100 });
     check('fecha caixa -> FECHADA, esperado 100, diferenca 0', () => {
@@ -629,13 +1268,98 @@ async function main() {
 
     // 11-Z) Relatorio Z do turno fechado: vendas do turno canceladas, diferenca 0.
     const readZ = await api('GET', `/cash/report/${close.body.id}`);
-    check('relatorio Z -> kind Z, 0 vendas ativas, 3 canceladas, diferenca 0', () => {
+    check('relatorio Z -> kind Z, 0 vendas ativas, 5 canceladas, diferenca 0', () => {
       assert.equal(readZ.body.kind, 'Z');
       assert.equal(readZ.body.sales.count, 0);
-      assert.equal(readZ.body.sales.canceledCount, 3);
+      // A venda do bloco de promocoes feita pelo operador nao entra aqui:
+      // ela nasce fora do turno do admin (o operador nao tem caixa aberto).
+      assert.equal(readZ.body.sales.canceledCount, 5);
       assert.equal(Number(readZ.body.cash.difference), 0);
       assert.equal(Number(readZ.body.cash.counted), 100);
     });
+    // 13) Licenciamento por módulos.
+    //
+    // O e2e roda com NODE_ENV=development, onde tudo liga sem chave — então
+    // aqui se verifica o CONTRATO (status, catálogo, núcleo sempre ativo) e a
+    // recusa de chave inválida. O gate em si (403 ModuloNaoLicenciado) depende
+    // de LICENSE_PUBLIC_KEY configurada e é exercitado fora da suíte.
+    const licStatus = await api('GET', '/license/status');
+    check('status de licenca lista modulos e nunca omite o nucleo', () => {
+      assert.equal(licStatus.status, 200);
+      assert.ok(licStatus.body.modulos.includes('core'), 'nucleo fora dos modulos ativos');
+      assert.ok(Array.isArray(licStatus.body.catalogo));
+      const core = licStatus.body.catalogo.find((m: any) => m.key === 'core');
+      assert.equal(core.core, true);
+      assert.equal(core.ativo, true, 'nucleo nunca pode aparecer inativo');
+      // Todo modulo do catalogo tem nome e descricao — a tela de licenca os usa.
+      for (const m of licStatus.body.catalogo) {
+        assert.ok(m.name && m.description, `modulo ${m.key} sem rotulo`);
+      }
+    });
+
+    const chaveLixo = await api('PUT', '/settings/license', {
+      key: 'CATALOG-1.naoehbase64.assinaturafalsa',
+    });
+    const chaveVazia = await api('PUT', '/settings/license', { key: '' });
+    check('chave invalida e recusada antes de entrar no banco', () => {
+      // Em desenvolvimento sem LICENSE_PUBLIC_KEY a verificacao e pulada, mas
+      // o DTO continua exigindo uma chave nao vazia.
+      assert.equal(chaveVazia.status, 400, 'chave vazia deveria ser 400');
+      assert.ok(
+        [200, 400].includes(chaveLixo.status),
+        `resposta inesperada para chave lixo: ${chaveLixo.status}`,
+      );
+    });
+
+    // O operador precisa ver o aviso de vencimento: a rota nao exige
+    // settings.manage, so autenticacao.
+    const adminTokenLic = token;
+    const opLic = opLoginShared.body?.access_token;
+    if (opLic) {
+      token = opLic;
+      const statusComoOperador = await api('GET', '/license/status');
+      const licencaComoOperador = await api('GET', '/settings/license');
+      token = adminTokenLic;
+      check('operador le o status da licenca, mas nao a chave', () => {
+        assert.equal(statusComoOperador.status, 200, 'operador deveria ver o status');
+        assert.equal(
+          licencaComoOperador.status,
+          403,
+          'a chave em si exige settings.manage',
+        );
+      });
+    }
+
+    // 12) Ajuste de estoque na trilha — ultimo buraco do SEC-009. Fica no fim
+    // porque mexe no saldo, e todas as assercoes de estoque ja passaram.
+    const ajuste = await api('POST', '/inventory/adjust', {
+      productId: scaleProductId,
+      type: 'PERDA',
+      quantity: 0.5,
+      reason: 'quebra e2e',
+    });
+    // SEC-038: PERDA negativa SOMAVA ao estoque e entrava na trilha como perda.
+    const perdaNegativa = await api('POST', '/inventory/adjust', {
+      productId: scaleProductId,
+      type: 'PERDA',
+      quantity: -100,
+      reason: 'entrada disfarcada de perda',
+    });
+    check('ajuste com quantidade negativa e recusado', () => {
+      assert.equal(perdaNegativa.status, 400, 'PERDA negativa deveria ser 400');
+    });
+
+    const auditAjuste = await api('GET', '/access/audit?action=inventory.adjust');
+    check('ajuste de estoque entra na trilha com tipo, quantidade e motivo', () => {
+      assert.ok([200, 201].includes(ajuste.status), `ajuste falhou: ${ajuste.status}`);
+      const linha = auditAjuste.body.find(
+        (a: any) => a.targetId === scaleProductId && a.detail?.motivo === 'quebra e2e',
+      );
+      assert.ok(linha, 'sem registro de inventory.adjust');
+      assert.equal(linha.detail.tipo, 'PERDA');
+      assert.equal(String(linha.detail.quantidade), '0.5');
+    });
+
   } finally {
     // Limpeza best-effort: inativa os produtos de teste.
     if (token) {
@@ -647,6 +1371,12 @@ async function main() {
       }
       if (scaleProductId) {
         await api('DELETE', `/products/${scaleProductId}`).catch(() => undefined);
+      }
+      if (concurCancelProductId) {
+        await api('DELETE', `/products/${concurCancelProductId}`).catch(() => undefined);
+      }
+      if (concurReturnProductId) {
+        await api('DELETE', `/products/${concurReturnProductId}`).catch(() => undefined);
       }
     }
     await app.close();

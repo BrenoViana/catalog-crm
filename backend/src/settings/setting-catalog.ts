@@ -46,6 +46,28 @@ export const SETTING_CATALOG: SettingDef[] = [
     max: 3_600_000,
   },
   {
+    key: 'authorize.rateLimit.max',
+    group: 'Seguranca',
+    label: 'Tentativas de liberacao de supervisor por janela',
+    description:
+      'Quantas vezes a senha de um supervisor pode ser tentada antes de bloquear. ' +
+      'Uso legitimo e raro: mantenha baixo — a rota e um oraculo de senha.',
+    type: 'number',
+    default: 5,
+    min: 1,
+    max: 20,
+  },
+  {
+    key: 'authorize.rateLimit.windowMs',
+    group: 'Seguranca',
+    label: 'Janela do bloqueio de liberacao (ms)',
+    description: 'Duracao da janela de contagem das tentativas de liberacao.',
+    type: 'number',
+    default: 300_000,
+    min: 1_000,
+    max: 3_600_000,
+  },
+  {
     key: 'sales.maxInstallments',
     group: 'Vendas',
     label: 'Parcelas maximas no credito',
@@ -93,6 +115,105 @@ export const SETTING_CATALOG: SettingDef[] = [
     default: 0,
     min: 0,
     max: 1_000_000,
+  },
+
+  // ------------------------------------------------------------- Financeiro
+  {
+    key: 'finance.installmentIntervalDays',
+    group: 'Financeiro',
+    label: 'Intervalo entre parcelas do crediario (dias)',
+    description:
+      'Espacamento entre os vencimentos das parcelas geradas por uma venda no crediario. ' +
+      'A primeira parcela vence um intervalo depois da venda.',
+    type: 'number',
+    default: 30,
+    min: 1,
+    max: 365,
+  },
+  {
+    key: 'finance.blockCreditWhenOverdue',
+    group: 'Financeiro',
+    label: 'Bloquear crediario com titulo vencido',
+    description:
+      'Recusa nova venda a prazo para cliente que ja tem parcela vencida. ' +
+      'Desligado, o vencido apenas consome o limite.',
+    type: 'boolean',
+    default: true,
+  },
+
+  // ------------------------------------------------------------- Fidelidade
+  {
+    key: 'loyalty.enabled',
+    group: 'Fidelidade',
+    label: 'Programa de fidelidade ativo',
+    description:
+      'Liga o cashback: venda com cliente identificado passa a gerar saldo, e o saldo ' +
+      'pode ser resgatado como pagamento no PDV. Desligar nao apaga saldo ja acumulado.',
+    type: 'boolean',
+    default: false,
+  },
+  {
+    key: 'loyalty.cashbackPercent',
+    group: 'Fidelidade',
+    label: 'Cashback por venda (%)',
+    description:
+      'Percentual do valor efetivamente pago que vira saldo para o cliente. O que foi ' +
+      'pago COM saldo nao gera saldo novo.',
+    type: 'number',
+    default: 0,
+    min: 0,
+    max: 50,
+  },
+  {
+    key: 'loyalty.minRedeem',
+    group: 'Fidelidade',
+    label: 'Resgate minimo (R$)',
+    description: 'Menor valor que o cliente pode usar de saldo numa venda.',
+    type: 'number',
+    default: 1,
+    min: 0,
+    max: 10_000,
+  },
+  {
+    key: 'loyalty.maxRedeemPercent',
+    group: 'Fidelidade',
+    label: 'Teto de resgate por venda (%)',
+    description:
+      'Quanto do total da venda pode ser pago com saldo. 100 permite pagar a venda inteira.',
+    type: 'number',
+    default: 100,
+    min: 1,
+    max: 100,
+  },
+  {
+    key: 'ops.maxShiftHours',
+    group: 'Caixa',
+    label: 'Horas maximas de turno aberto',
+    description:
+      'A partir daqui o turno vira alerta operacional. Caixa aberto a noite inteira ' +
+      'e o cenario em que a gaveta muda de mao sem ninguem assinar a contagem.',
+    type: 'number',
+    default: 12,
+    min: 1,
+    // Teto baixo de proposito: acima de 24h o alerta deixaria de cobrir o caso
+    // que ele existe para pegar — a gaveta esquecida aberta de um dia para o
+    // outro (SEC-076).
+    max: 24,
+  },
+  {
+    key: 'ops.divergenceAlert',
+    group: 'Caixa',
+    label: 'Divergencia de gaveta que vira alerta (R$)',
+    description:
+      'Diferenca absoluta de fechamento a partir da qual o turno entra na lista de ' +
+      'alertas. Erro de troco e centavos; divergencia recorrente e outra coisa.',
+    type: 'number',
+    default: 20,
+    min: 0,
+    // Nenhuma loja de balcao acumula R$ 2.000 de divergencia em 30 dias sem que
+    // isso seja o proprio problema: teto alto demais aqui desligaria o alerta
+    // por configuracao (SEC-076).
+    max: 2_000,
   },
 ];
 

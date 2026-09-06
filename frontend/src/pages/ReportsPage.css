@@ -1,0 +1,130 @@
+/* Relatórios: abas, seletor de período, barras da série e barras de participação. */
+
+.report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.report-hint {
+  margin: 0 0 16px;
+  font-size: 0.88rem;
+}
+
+.report-toolbar {
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.report-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report-date {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.report-date input,
+.report-date select {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--text-strong);
+  font: inherit;
+}
+
+.report-panel {
+  margin-top: 20px;
+}
+
+.report-note {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.report-empty {
+  padding: 24px 0;
+}
+
+/* Série do período: mesma linguagem visual das barras do dashboard, mas com
+   muitos mais baldes possíveis (até 366 dias), então rola na horizontal. */
+.report-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 220px;
+  padding-top: 14px;
+  overflow-x: auto;
+}
+
+.report-bars .bar-group {
+  flex: 1 0 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 100%;
+}
+
+.report-bars .bar-group small {
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+/* Participação percentual desenhada sob o rótulo da linha. */
+.share-track {
+  display: block;
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.share-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--bar-from), var(--bar-to));
+}
+
+.report-shares li > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.ta-right {
+  text-align: right;
+}
+
+/* A curva ABC é ordinal: A puxa a receita, C é cauda. As cores seguem essa
+   leitura em vez de virarem semáforo de erro. */
+.tag.curva-A {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border-color: var(--success-border);
+}
+.tag.curva-B {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+@media (max-width: 720px) {
+  .report-toolbar {
+    align-items: stretch;
+  }
+  .report-date input,
+  .report-date select {
+    width: 100%;
+  }
+}

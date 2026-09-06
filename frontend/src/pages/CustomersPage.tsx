@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
+import { CustomerCreditLoyalty } from '../components/CustomerCreditLoyalty';
 import { Modal } from '../components/Modal';
 import {
   CustomerFormModal,
@@ -314,6 +315,8 @@ function CustomerProfileModal({ id, onClose }: { id: string; onClose: () => void
               </article>
             ))}
           </div>
+
+          <CustomerCreditLoyalty customerId={id} />
 
           <div className="panel-header" style={{ marginTop: 20 }}>
             <h2>Compras recentes</h2>

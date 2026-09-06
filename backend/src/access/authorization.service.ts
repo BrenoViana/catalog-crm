@@ -58,24 +58,50 @@ export class AuthorizationService {
     password: string;
     permission: string;
     reason?: string;
+    ip?: string;
   }) {
-    const { operatorId, username, password, permission, reason } = params;
+    const { operatorId, username, password, permission, reason, ip } = params;
+
+    // Toda recusa vira trilha. Sem isto, chutar senha de supervisor nao deixa
+    // rastro nenhum e o gerente nunca fica sabendo que tentaram.
+    const deny = async (motivo: string) => {
+      await this.record({
+        action: 'authorization.denied',
+        actorId: operatorId,
+        permissionKey: permission,
+        detail: { alvo: username.slice(0, 64), motivo, ip: ip ?? null },
+      });
+    };
 
     if (!PERMISSION_KEYS.includes(permission)) {
+      await deny('permissao inexistente');
       throw new BadRequestException(`Permissao "${permission}" nao existe.`);
     }
 
-    const approver = await this.prisma.user.findUnique({ where: { username } });
-    if (!approver || !approver.active || !bcrypt.compareSync(password, approver.passwordHash)) {
-      // Mensagem única: não revela se o usuário existe.
+    const approver = await this.prisma.user.findUnique({
+      where: { username: username.trim().toLowerCase() },
+    });
+    // bcrypt.compare assincrono: o compareSync bloqueia o event loop por ~60ms
+    // por chamada, o que transformava esta rota num DoS barato.
+    const senhaOk =
+      !!approver &&
+      approver.active &&
+      (await bcrypt.compare(password, approver.passwordHash));
+    if (!senhaOk) {
+      await deny('credenciais invalidas');
+      // Mensagem única: não revela se o usuário existe nem se está inativo.
       throw new UnauthorizedException('Credenciais de supervisor invalidas.');
     }
     if (approver.id === operatorId) {
+      await deny('auto-liberacao');
       throw new ForbiddenException('A liberacao precisa vir de outro usuario.');
     }
     if (!(await this.access.can(approver.id, permission))) {
+      await deny('supervisor sem a permissao');
+      // Sem o nome: o 403 ja confirma que a senha estava certa; nao precisa
+      // entregar tambem o nome completo de quem a operadora so conhece por login.
       throw new ForbiddenException(
-        `${approver.name} nao tem a permissao necessaria para liberar esta operacao.`,
+        'O usuario informado nao tem a permissao necessaria para liberar esta operacao.',
       );
     }
 
@@ -94,7 +120,7 @@ export class AuthorizationService {
       permissionKey: permission,
       actorId: operatorId,
       approverId: approver.id,
-      detail: { reason: reason ?? null, jti },
+      detail: { reason: reason ?? null, jti, ip: ip ?? null },
     });
 
     return {

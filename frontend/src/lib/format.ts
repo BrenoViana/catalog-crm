@@ -37,6 +37,19 @@ export const dateTime = (value: string | null | undefined) =>
 export const dateOnly = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleDateString('pt-BR') : '—';
 
+/**
+ * Rotulo de dia (`AAAA-MM-DD`) em dd/mm/aaaa.
+ *
+ * Nao passa por `Date` de proposito: `new Date('2026-09-05')` e meia-noite UTC
+ * e, num fuso a oeste, o `toLocaleDateString` devolveria o dia ANTERIOR — um
+ * fechamento do dia 5 apareceria como dia 4.
+ */
+export const dayLabelBr = (label: string | null | undefined) => {
+  if (!label) return '—';
+  const [y, m, d] = label.split('-');
+  return d ? `${d}/${m}/${y}` : label;
+};
+
 export const paymentLabel: Record<string, string> = {
   DINHEIRO: 'Dinheiro',
   PIX: 'PIX',
@@ -44,4 +57,12 @@ export const paymentLabel: Record<string, string> = {
   CREDITO: 'Crédito',
   CREDIARIO: 'Crediário',
   OUTRO: 'Outro',
+  FIDELIDADE: 'Saldo fidelidade',
+};
+
+/** Data no formato do input[type=date] (yyyy-mm-dd), em horario local. */
+export const dateInput = (value: Date | string = new Date()) => {
+  const d = value instanceof Date ? value : new Date(value);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return [d.getFullYear(), pad(d.getMonth() + 1), pad(d.getDate())].join('-');
 };

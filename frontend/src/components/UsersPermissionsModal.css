@@ -142,8 +142,23 @@
   background: var(--surface-3);
 }
 
+.access-new-role .primary-button,
+.access-group > .primary-button {
+  margin-top: 8px;
+  justify-self: start;
+}
+
+/* Campos lado a lado na ficha: nome/login e o trio de senha. */
+.access-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
 @media (max-width: 860px) {
   .access-split { grid-template-columns: 1fr; }
+  .access-form-row { grid-template-columns: 1fr; }
   .access-list, .access-detail { max-height: none; }
   .access-perm { grid-template-columns: 1fr; gap: 6px; }
   .access-effective { text-align: left; }

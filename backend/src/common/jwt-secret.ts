@@ -22,7 +22,10 @@ const PLACEHOLDER_PATTERNS = [
 const DEV_FALLBACK = 'dev-only-insecure-secret-change-me-0123456789';
 
 export function getJwtSecret(): string {
-  const isDev = (process.env.NODE_ENV ?? 'development') === 'development';
+  // Opt-in explicito: variavel AUSENTE vale como producao. O contrario
+  // (`?? 'development'`) fazia o `start:prod` sem NODE_ENV subir com o segredo
+  // de desenvolvimento, que e uma constante versionada neste arquivo.
+  const isDev = process.env.NODE_ENV === 'development';
   const secret = process.env.JWT_SECRET?.trim();
 
   const looksLikePlaceholder = (value: string) =>
