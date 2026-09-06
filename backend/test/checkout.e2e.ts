@@ -1268,12 +1268,16 @@ async function main() {
 
     // 11-Z) Relatorio Z do turno fechado: vendas do turno canceladas, diferenca 0.
     const readZ = await api('GET', `/cash/report/${close.body.id}`);
-    check('relatorio Z -> kind Z, 0 vendas ativas, 5 canceladas, diferenca 0', () => {
+    check('relatorio Z -> kind Z, 1 venda ativa, 6 canceladas, diferenca 0', () => {
       assert.equal(readZ.body.kind, 'Z');
-      assert.equal(readZ.body.sales.count, 0);
+      // A venda que sobra ativa e a do bloco de corrida de devolucao (SEC-048):
+      // foi vendida a vista e devolvida por inteiro. Devolucao nao e
+      // cancelamento — a venda continua CONCLUIDA e a gaveta se acerta pela
+      // SANGRIA da devolucao, por isso a diferenca abaixo continua zero.
+      assert.equal(readZ.body.sales.count, 1);
       // A venda do bloco de promocoes feita pelo operador nao entra aqui:
       // ela nasce fora do turno do admin (o operador nao tem caixa aberto).
-      assert.equal(readZ.body.sales.canceledCount, 5);
+      assert.equal(readZ.body.sales.canceledCount, 6);
       assert.equal(Number(readZ.body.cash.difference), 0);
       assert.equal(Number(readZ.body.cash.counted), 100);
     });
