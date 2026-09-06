@@ -63,11 +63,15 @@ vale uma vez, e quem fez e quem liberou ficam na trilha de auditoria.
 ## Licenciamento por módulos
 
 O **núcleo** (catálogo, venda, caixa) está sempre ativo — licença vencida nunca
-impede a loja de vender nem de abrir o caixa. Os módulos `Fiscal`,
-`Promoções & fidelidade`, `Financeiro`, `Relatórios` e `Escala` são liberados
-por uma chave Ed25519 assinada pelo fornecedor e **verificada offline**: a
-instalação só verifica, a chave privada nunca entra no repositório nem no
-`.env` do cliente.
+impede a loja de vender à vista nem de abrir o caixa. A venda **a prazo** é a
+exceção: ela depende do módulo `Financeiro` e é recusada sem ele.
+
+Os módulos `Fiscal`, `Promoções & fidelidade`, `Financeiro` e `Relatórios` são
+liberados por uma chave Ed25519 assinada pelo fornecedor e **verificada
+offline**: a instalação só verifica, a chave privada nunca entra no repositório
+nem no `.env` do cliente. O módulo `Escala` (multi-caixa consolidado, multi-loja
+e operação offline) consta do catálogo mas ainda **não tem funcionalidade
+associada** — está no roadmap, não em produção.
 
 ## Executando localmente
 
@@ -75,20 +79,32 @@ O guia completo — banco, backend, frontend, migrations, seed, health check e
 problemas comuns — está em **[EXECUCAO.md](EXECUCAO.md)**. Em resumo:
 
 ```bash
-npm install                          # na raiz (workspaces)
-cd backend && npx prisma dev -d      # Postgres embarcado, sem Docker
-npx prisma migrate deploy && npm run seed
-cd .. && npm run dev -w backend      # http://localhost:3000/api
-npm run dev -w frontend              # http://localhost:5173
+npm install                     # na raiz (workspaces)
+cd backend
+cp .env.example .env            # confira: DATABASE_URL precisa apontar para localhost
+npx prisma dev -d               # Postgres embarcado, sem Docker
+npx prisma migrate dev          # 'migrate deploy' e o comando de producao
+npm run seed                    # DESTRUTIVO — veja o aviso abaixo
+cd .. && npm run dev -w backend # http://localhost:3000/api
+npm run dev -w frontend         # http://localhost:5173
 ```
 
 Requisitos: Node na versão do `.nvmrc` (hoje 20, a mesma do CI) e npm 11+.
 
-> O seed **apaga** vendas, caixa, produtos e usuários antes de recriar a base de
-> exemplo. Por isso só roda com `NODE_ENV=development`.
+> **O seed apaga dados.** Ele remove vendas, caixa, auditoria, produtos e
+> usuários antes de recriar a base de exemplo. Só roda com
+> `NODE_ENV=development` — e é o `backend/.env` que decide isso, então confirme
+> para onde o `DATABASE_URL` aponta **antes** de rodar.
 
-Usuários de desenvolvimento: `admin/admin`, `gerente/gerente`,
-`operador/operador`.
+Usuários criados **apenas** pelo seed de desenvolvimento. Nenhuma instalação
+real deve tê-los — crie o administrador pela API e nunca rode o seed contra o
+banco de uma loja:
+
+| Usuário | Senha | Papel |
+| --- | --- | --- |
+| `admin` | `admin` | ADMIN |
+| `gerente` | `gerente` | GERENTE |
+| `operador` | `operador` | OPERADOR |
 
 ## Segurança
 
@@ -96,7 +112,13 @@ O projeto lida com dinheiro, dados fiscais e dados pessoais sob LGPD. Algumas
 travas que valem conhecer antes de fazer deploy:
 
 - **`NODE_ENV` ausente vale como produção** (falha fechada). Sem ele, o backend
-  exige `JWT_SECRET` forte e recusa o gateway de pagamento simulado.
+  exige `JWT_SECRET` forte e recusa o gateway de pagamento simulado. Atenção ao
+  mecanismo: o `main.ts` carrega `backend/.env` **antes** dessa checagem, então
+  um `.env` de desenvolvimento embarcado no deploy desliga as três travas de uma
+  vez — segredo de JWT de fallback, gateway simulado ativo e todos os módulos
+  liberados. Em produção, gere um `.env` próprio com
+  `NODE_ENV=production`, `JWT_SECRET` aleatório de 32+ caracteres,
+  `ALLOW_FAKE_PAYMENT_GATEWAY=false` e `CORS_ORIGIN` sem `localhost`.
 - **O provedor de pagamento simulado confirma qualquer valor sem cobrar nada.**
   Ele só sobe em desenvolvimento ou com `ALLOW_FAKE_PAYMENT_GATEWAY`
   explicitamente ligado. Numa loja real, é entregar mercadoria de graça.
