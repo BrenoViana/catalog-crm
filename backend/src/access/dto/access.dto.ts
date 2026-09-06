@@ -62,6 +62,40 @@ export class SetUserActiveDto {
   active: boolean;
 }
 
+export class CreateUserDto {
+  @IsString() @MinLength(3) @MaxLength(60)
+  username: string;
+
+  @IsString() @MinLength(2) @MaxLength(120)
+  name: string;
+
+  @IsString() @MinLength(8) @MaxLength(200)
+  password: string;
+
+  @IsString()
+  roleId: string;
+
+  @IsOptional() @IsBoolean()
+  active?: boolean;
+}
+
+export class UpdateUserDto {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(120)
+  name?: string;
+
+  @IsOptional() @IsString() @MinLength(3) @MaxLength(60)
+  username?: string;
+}
+
+export class SetPasswordDto {
+  @IsString() @MinLength(8) @MaxLength(200)
+  password: string;
+
+  /** Exigida apenas quando a pessoa troca a propria senha. */
+  @IsOptional() @IsString() @MaxLength(200)
+  currentPassword?: string;
+}
+
 export class AuthorizeDto {
   @IsString() @MinLength(1) @MaxLength(60)
   username: string;

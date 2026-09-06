@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { cashApi, type CashReport } from '../lib/api-client';
-import { brl, dateTime, paymentLabel } from '../lib/format';
+import { brl, dateInput, dateTime, paymentLabel } from '../lib/format';
 import { getTerminal, setTerminal } from '../lib/terminal';
+import { useCan } from '../store/authStore';
 
 const movementLabel: Record<string, string> = {
   ABERTURA: 'Abertura',
@@ -13,6 +14,176 @@ const movementLabel: Record<string, string> = {
   SUPRIMENTO: 'Suprimento',
   FECHAMENTO: 'Fechamento',
 };
+
+/**
+ * Consolidado multi-caixa.
+ *
+ * A leitura X/Z responde por um turno. Esta seção responde pela loja: soma
+ * todos os turnos do dia (ou do período) e, principalmente, abre por terminal e
+ * por operador — o total serve para conferir, o recorte serve para achar de
+ * onde veio a diferença. Só aparece para quem tem `cash.consolidate`: ver a
+ * divergência de gaveta dos colegas é uma decisão de acesso à parte.
+ */
+function ConsolidatedPanel() {
+  const [from, setFrom] = useState(() => dateInput(new Date()));
+  const [to, setTo] = useState(() => dateInput(new Date()));
+
+  const consolidated = useQuery({
+    queryKey: ['cash', 'consolidated', from, to],
+    queryFn: () => cashApi.consolidated(from, to),
+  });
+
+  const data = consolidated.data;
+  const t = data?.totals;
+
+  return (
+    <section className="panel" style={{ marginTop: 20 }}>
+      <div className="panel-header">
+        <div>
+          <h2>Consolidado de caixas</h2>
+          <small className="muted">
+            Todos os turnos, terminais e operadores do período.
+          </small>
+        </div>
+        <div className="consolidated-range">
+          <label className="field">
+            <span>De</span>
+            <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Até</span>
+            <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </div>
+      </div>
+
+      {consolidated.isLoading ? <p className="muted">Carregando…</p> : null}
+      {consolidated.error ? (
+        <p className="text-warning">
+          {(consolidated.error as Error).message ?? 'Não foi possível carregar o consolidado.'}
+        </p>
+      ) : null}
+
+      {data && t ? (
+        t.sessions === 0 ? (
+          <p className="muted">Nenhum turno de caixa no período.</p>
+        ) : (
+          <>
+            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+              <article className="stat-card">
+                <span>Turnos</span>
+                <strong>{t.sessions}</strong>
+                <small className="muted">
+                  {t.terminals} terminal(is) · {t.operators} operador(es)
+                  {t.openSessions > 0 ? ` · ${t.openSessions} aberto(s)` : ''}
+                </small>
+              </article>
+              <article className="stat-card">
+                <span>Vendido</span>
+                <strong>{brl(t.salesTotal)}</strong>
+                <small className="muted">
+                  {t.salesCount} venda(s) · {t.canceledCount} cancelada(s)
+                </small>
+              </article>
+              <article className="stat-card">
+                <span>Esperado em espécie</span>
+                <strong>{brl(t.expected)}</strong>
+                <small className="muted">Contado: {brl(t.counted)}</small>
+              </article>
+              <article className="stat-card">
+                <span>Diferença de gaveta</span>
+                <strong className={Number(t.difference) === 0 ? '' : 'text-warning'}>
+                  {brl(t.difference)}
+                </strong>
+                {/* Turno aberto não entra: gaveta ainda não contada não é falta. */}
+                <small className="muted">Só turnos já fechados</small>
+              </article>
+            </div>
+
+            {data.divergences.length > 0 ? (
+              <>
+                <h3 className="turn-report-sub">Divergências</h3>
+                <ul className="list-rows">
+                  {data.divergences.map((s) => (
+                    <li key={s.id}>
+                      <span>
+                        {s.operator.name}
+                        <small>
+                          {' '}
+                          — {s.terminal ?? 'sem terminal'} · {dateTime(s.openedAt)}
+                        </small>
+                      </span>
+                      <strong className="text-warning">
+                        {Number(s.difference) > 0 ? '+' : ''}
+                        {brl(s.difference)}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            <div className="consolidated-cuts">
+              <div>
+                <h3 className="turn-report-sub">Por terminal</h3>
+                <ul className="list-rows">
+                  {data.byTerminal.map((g) => (
+                    <li key={g.key}>
+                      <span>
+                        {g.key} <small>· {g.sessions} turno(s)</small>
+                      </span>
+                      <strong>{brl(g.salesTotal)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="turn-report-sub">Por operador</h3>
+                <ul className="list-rows">
+                  {data.byOperator.map((g) => (
+                    <li key={g.key}>
+                      <span>
+                        {g.key} <small>· {g.sessions} turno(s)</small>
+                      </span>
+                      <strong>{brl(g.salesTotal)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="turn-report-sub">Por forma de pagamento</h3>
+                {data.byPaymentMethod.length === 0 ? (
+                  <p className="muted">Nenhum pagamento no período.</p>
+                ) : (
+                  <ul className="list-rows">
+                    {data.byPaymentMethod.map((p) => (
+                      <li key={p.method}>
+                        <span>
+                          {paymentLabel[p.method] ?? p.method} <small>× {p.count}</small>
+                        </span>
+                        <strong>{brl(p.amount)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            {data.unsettledPayments.length > 0 ? (
+              <p className="muted" style={{ marginTop: 12 }}>
+                Atenção: há pagamentos recusados ou sem desfecho no período (
+                {data.unsettledPayments
+                  .map((u) => `${u.status.toLowerCase()}: ${brl(u.amount)}`)
+                  .join(' · ')}
+                ). Eles não entram no recebido.
+              </p>
+            ) : null}
+          </>
+        )
+      ) : null}
+    </section>
+  );
+}
 
 function TurnReport({ report }: { report: CashReport }) {
   const isZ = report.kind === 'Z';
@@ -96,6 +267,7 @@ export function CashPage() {
   const [terminal, setTerminalName] = useState(getTerminal);
   const [counted, setCounted] = useState('');
   const [mov, setMov] = useState({ type: 'SANGRIA' as 'SANGRIA' | 'SUPRIMENTO', amount: '', reason: '' });
+  const canConsolidate = useCan('cash.consolidate');
 
   const current = useQuery({ queryKey: ['cash', 'current'], queryFn: cashApi.current });
 
@@ -208,6 +380,31 @@ export function CashPage() {
               Aberto em {dateTime(session.openedAt)}
             </p>
 
+            {session.drawer?.exceeded ? (
+              <div className="drawer-alert" role="status">
+                <div>
+                  <strong>Gaveta acima do teto</strong>
+                  <p>
+                    Há {brl(session.drawer.cashOnHand)} em espécie, acima do limite de{' '}
+                    {brl(session.drawer.limit)} configurado para a loja. Recolha{' '}
+                    {brl(session.drawer.suggestedWithdrawal)} para o cofre.
+                  </p>
+                </div>
+                <button
+                  className="ghost-button"
+                  onClick={() =>
+                    setMov({
+                      type: 'SANGRIA',
+                      amount: String(session.drawer?.suggestedWithdrawal ?? ''),
+                      reason: 'Sangria por limite de gaveta',
+                    })
+                  }
+                >
+                  Preparar sangria
+                </button>
+              </div>
+            ) : null}
+
             <ul className="list-rows" style={{ marginTop: 16 }}>
               {session.movements.map((m) => (
                 <li key={m.id}>
@@ -287,6 +484,8 @@ export function CashPage() {
         ) : null}
         </>
       )}
+
+      {canConsolidate ? <ConsolidatedPanel /> : null}
     </Layout>
   );
 }

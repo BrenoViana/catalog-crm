@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -49,4 +50,19 @@ export class CashMovementDto {
   @IsNotEmpty()
   @MaxLength(300)
   reason: string;
+}
+
+/**
+ * Janela do consolidado multi-caixa. As datas chegam como `AAAA-MM-DD` e sao
+ * resolvidas no fuso do servidor — o mesmo criterio do X/Z e dos relatorios,
+ * senao o consolidado nao concilia com as leituras que ele soma.
+ */
+export class ConsolidatedQueryDto {
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from deve estar no formato AAAA-MM-DD' })
+  from?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to deve estar no formato AAAA-MM-DD' })
+  to?: string;
 }

@@ -8,15 +8,21 @@ import { SupervisorApprovalModal } from '../components/SupervisorApprovalModal';
 import {
   cashApi,
   customersApi,
+  financeApi,
+  loyaltyApi,
   productsApi,
+  promotionsApi,
   salesApi,
   storeSettingsApi,
+  appSettingsApi,
   type Customer,
   type PaymentMethod,
   type Product,
+  type PromotionSimulation,
   type Sale,
 } from '../lib/api-client';
 import { brl, paymentLabel, resolveDiscount, round2, toNumber } from '../lib/format';
+import { useLicense } from '../lib/useLicense';
 import { parseScaleBarcode } from '../lib/barcode';
 import { mailtoUrl, receiptText, whatsappUrl } from '../lib/receipt-share';
 import { getTerminal, setTerminal } from '../lib/terminal';
@@ -36,7 +42,8 @@ interface PayRow {
   installments: number;
 }
 
-const METHODS: PaymentMethod[] = ['DINHEIRO', 'PIX', 'DEBITO', 'CREDITO'];
+/** Formas sempre disponíveis. Crediário e fidelidade dependem do cliente. */
+const BASE_METHODS: PaymentMethod[] = ['DINHEIRO', 'PIX', 'DEBITO', 'CREDITO'];
 const MAX_INSTALLMENTS = 12;
 const EPS = 0.005;
 
@@ -94,6 +101,11 @@ export function PdvPage() {
   const cash = useQuery({ queryKey: ['cash', 'current'], queryFn: cashApi.current });
   const customers = useQuery({ queryKey: ['customers'], queryFn: () => customersApi.list() });
   const store = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
+  const settings = useQuery({
+    queryKey: ['app-settings', 'public'],
+    queryFn: appSettingsApi.publicValues,
+    staleTime: 5 * 60 * 1000,
+  });
   const results = useQuery({
     queryKey: ['products', 'pdv', term],
     queryFn: () => productsApi.list({ search: term, onlyActive: true }),
@@ -111,6 +123,54 @@ export function PdvPage() {
     [lineGross, lineDiscount],
   );
 
+  // Simulacao de promocoes: refeita a cada mudanca de carrinho. Falha de rede
+  // nao pode travar o balcao — sem resposta, o PDV segue sem desconto previsto
+  // e o servidor aplica a promocao de qualquer forma no fechamento.
+  const { allows } = useLicense();
+  const promocoesAtivas = allows('promocoes');
+  const [promoSim, setPromoSim] = useState<PromotionSimulation | null>(null);
+  const promoKey = useMemo(
+    () =>
+      cart
+        .map((l) => `${l.product.id}:${l.quantity}`)
+        .join('|'),
+    [cart],
+  );
+  useEffect(() => {
+    // Sem o modulo licenciado a rota responde 403: nao adianta bater nela a
+    // cada mudanca de carrinho para descobrir isso de novo.
+    if (cart.length === 0 || !promocoesAtivas) {
+      setPromoSim(null);
+      return;
+    }
+    let cancelado = false;
+    const items = cart.map((l) => ({
+      productId: l.product.id,
+      quantity: l.quantity,
+    }));
+    promotionsApi
+      .simulate(items)
+      .then((res) => {
+        if (!cancelado) setPromoSim(res);
+      })
+      .catch(() => {
+        if (!cancelado) setPromoSim(null);
+      });
+    return () => {
+      cancelado = true;
+    };
+    // promoKey resume o carrinho: evita refazer a simulacao a cada re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promoKey, promocoesAtivas]);
+
+  const promoByIndex = useMemo(() => {
+    const m = new Map<number, { discount: number; name: string }>();
+    for (const l of promoSim?.lines ?? []) {
+      m.set(l.index, { discount: l.discount, name: l.promotionName });
+    }
+    return m;
+  }, [promoSim]);
+
   const grossSubtotal = useMemo(
     () => round2(cart.reduce((acc, l) => acc + lineGross(l), 0)),
     [cart, lineGross],
@@ -119,13 +179,33 @@ export function PdvPage() {
     () => round2(cart.reduce((acc, l) => acc + lineDiscount(l), 0)),
     [cart, lineDiscount],
   );
-  const netSubtotal = round2(grossSubtotal - itemDiscountTotal);
+  // Desconto automatico da loja, calculado pelo SERVIDOR. Aqui e so previsao
+  // para o cliente ver o preco antes de fechar — a venda recalcula do zero.
+  // O servidor limita a promocao ao que sobra de CADA linha (bruto menos o
+  // desconto manual). Descontar o total global aqui fazia a tela mostrar total
+  // negativo quando o operador digitava um desconto grande numa linha que
+  // tambem tinha campanha.
+  const promoTotal = useMemo(
+    () =>
+      round2(
+        cart.reduce((acc, l, idx) => {
+          const room = Math.max(0, round2(lineGross(l) - lineDiscount(l)));
+          return acc + Math.min(promoByIndex.get(idx)?.discount ?? 0, room);
+        }, 0),
+      ),
+    [cart, promoByIndex, lineGross, lineDiscount],
+  );
+  const netSubtotal = round2(grossSubtotal - itemDiscountTotal - promoTotal);
   const saleDisc = resolveDiscount(saleDiscount, netSubtotal);
   const total = round2(netSubtotal - saleDisc);
 
   // Politica de desconto: teto do operador (itens + venda sobre o bruto).
+  // Espelha a regra do servidor: promocao da loja NAO consome o teto do
+  // operador — so o desconto que ele mesmo concede.
   const discountPct =
-    grossSubtotal > 0 ? ((grossSubtotal - total) / grossSubtotal) * 100 : 0;
+    grossSubtotal > 0
+      ? ((itemDiscountTotal + saleDisc) / grossSubtotal) * 100
+      : 0;
   const discountLimit = store.data?.maxDiscountPercentOperator ?? null;
   const overDiscountLimit =
     !permissions.includes('sales.discountOverride') &&
@@ -143,6 +223,64 @@ export function PdvPage() {
   const falta = round2(Math.max(0, total - paid));
   const troco = round2(Math.min(Math.max(0, paid - total), cashPaid));
   const nonCashOverpay = nonCashPaid > total + EPS;
+
+  // ------------------------------------------------- Crediario e fidelidade
+  // As duas formas dependem de cliente identificado: uma cria uma divida com
+  // dono, a outra gasta o saldo de alguem. Sem cliente, nao sao oferecidas —
+  // botao que responde 400 e pior que botao que nao existe.
+  const financeiroAtivo = allows('financeiro');
+  const loyaltyCfg = settings.data?.loyalty;
+  const fidelidadeAtiva = promocoesAtivas && !!loyaltyCfg?.enabled;
+
+  const credit = useQuery({
+    queryKey: ['finance', 'credit', customerId],
+    queryFn: () => financeApi.creditStatus(customerId),
+    enabled: !!customerId && financeiroAtivo && permissions.includes('finance.view'),
+  });
+  const loyalty = useQuery({
+    queryKey: ['loyalty', customerId],
+    queryFn: () => loyaltyApi.statement(customerId),
+    enabled: !!customerId && fidelidadeAtiva,
+  });
+
+  const saldoFidelidade = loyalty.data?.balance ?? 0;
+  const podeResgatar =
+    fidelidadeAtiva && saldoFidelidade > 0 && permissions.includes('loyalty.redeem');
+  // O teto e o menor entre o saldo do cliente e a fatia da venda que a loja
+  // aceita receber em saldo. Mostrar o saldo cheio quando so metade pode ser
+  // usada e prometer ao cliente o que o servidor vai recusar.
+  const tetoResgate = round2(
+    Math.min(saldoFidelidade, total * ((loyaltyCfg?.maxRedeemPercent ?? 100) / 100)),
+  );
+
+  const METHODS = useMemo(() => {
+    const list = [...BASE_METHODS];
+    if (financeiroAtivo && customerId) list.push('CREDIARIO');
+    if (podeResgatar) list.push('FIDELIDADE');
+    return list;
+  }, [financeiroAtivo, customerId, podeResgatar]);
+
+  // Trocar de cliente pode tirar do mapa a forma ja escolhida (o novo cliente
+  // nao tem saldo, ou o operador voltou para "consumidor nao identificado").
+  useEffect(() => {
+    setPayments((prev) =>
+      prev.some((r) => !METHODS.includes(r.method))
+        ? prev.map((r) => (METHODS.includes(r.method) ? r : { ...r, method: 'DINHEIRO' }))
+        : prev,
+    );
+  }, [METHODS]);
+
+  const crediarioPedido = round2(
+    effective.reduce((acc, v, i) => acc + (payments[i]?.method === 'CREDIARIO' ? v : 0), 0),
+  );
+  const resgatePedido = round2(
+    effective.reduce((acc, v, i) => acc + (payments[i]?.method === 'FIDELIDADE' ? v : 0), 0),
+  );
+  const resgateAcimaDoTeto = resgatePedido > tetoResgate + EPS;
+  const crediarioSemLimite =
+    crediarioPedido > EPS &&
+    credit.data != null &&
+    crediarioPedido > credit.data.available + EPS;
 
   // ---------------------------------------------------------------- Carrinho
   const addToCart = useCallback((product: Product, quantity = 1) => {
@@ -250,7 +388,10 @@ export function PdvPage() {
           .map((r, i) => ({
             method: r.method,
             amount: round2(effective[i] ?? 0),
-            installments: r.method === 'CREDITO' ? r.installments : undefined,
+            installments:
+              r.method === 'CREDITO' || r.method === 'CREDIARIO'
+                ? r.installments
+                : undefined,
           }))
           .filter((p) => p.amount > 0),
           discount: saleDisc > 0 ? round2(saleDisc) : undefined,
@@ -277,6 +418,8 @@ export function PdvPage() {
     paid + EPS >= total &&
     !nonCashOverpay &&
     !blockedByDiscount &&
+    !resgateAcimaDoTeto &&
+    !crediarioSemLimite &&
     !sale.isPending;
 
   const printReceipt = useCallback(() => {
@@ -515,6 +658,30 @@ export function PdvPage() {
             </div>
           </label>
 
+          {customerId && (credit.data || saldoFidelidade > 0) ? (
+            <div className="customer-credit">
+              {credit.data ? (
+                <span>
+                  Crediário disponível <strong>{brl(credit.data.available)}</strong>
+                  {credit.data.overdueCount > 0 ? (
+                    <em className="text-warning">
+                      {' '}
+                      · {credit.data.overdueCount} parcela(s) vencida(s)
+                    </em>
+                  ) : null}
+                </span>
+              ) : null}
+              {saldoFidelidade > 0 ? (
+                <span>
+                  Saldo fidelidade <strong>{brl(saldoFidelidade)}</strong>
+                  {tetoResgate < saldoFidelidade ? (
+                    <em className="muted"> · até {brl(tetoResgate)} nesta venda</em>
+                  ) : null}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="pay-list">
             {payments.map((p, i) => (
               <div className="pay-row" key={i}>
@@ -534,7 +701,7 @@ export function PdvPage() {
                   placeholder={(effective[i] ?? 0).toFixed(2)}
                   onChange={(e) => setPay(i, { amount: e.target.value })}
                 />
-                {p.method === 'CREDITO' ? (
+                {p.method === 'CREDITO' || p.method === 'CREDIARIO' ? (
                   <select
                     value={p.installments}
                     onChange={(e) => setPay(i, { installments: Number(e.target.value) })}
@@ -564,7 +731,15 @@ export function PdvPage() {
           </button>
 
           <div className="pay-status">
-            {falta > EPS ? (
+            {resgateAcimaDoTeto ? (
+              <span className="text-warning">
+                Resgate acima do permitido — máximo {brl(tetoResgate)}
+              </span>
+            ) : crediarioSemLimite ? (
+              <span className="text-warning">
+                Crediário acima do limite — disponível {brl(credit.data?.available ?? 0)}
+              </span>
+            ) : falta > EPS ? (
               <span className="text-warning">Falta {brl(falta)}</span>
             ) : nonCashOverpay ? (
               <span className="text-warning">
@@ -596,12 +771,18 @@ export function PdvPage() {
             <p className="muted">Adicione produtos para iniciar a venda.</p>
           ) : (
             <ul className="cart">
-              {cart.map((l) => (
+              {cart.map((l, idx) => (
                 <li key={l.product.id} className="cart-line">
                   <div className="cart-line-row">
                     <div className="cart-line-main">
                       <strong>{l.product.name}</strong>
                       <small>{brl(l.product.price)} / {l.product.unit}</small>
+                      {promoByIndex.get(idx) ? (
+                        <small className="cart-line-promo">
+                          {promoByIndex.get(idx)!.name} · −
+                          {brl(promoByIndex.get(idx)!.discount)}
+                        </small>
+                      ) : null}
                     </div>
                     <div className="qty-control">
                       <button onClick={() => setQty(l.product.id, stepQty(l, -1))}>−</button>
@@ -614,7 +795,20 @@ export function PdvPage() {
                       />
                       <button onClick={() => setQty(l.product.id, stepQty(l, 1))}>+</button>
                     </div>
-                    <strong className="cart-line-total">{brl(lineTotal(l))}</strong>
+                    <strong className="cart-line-total">
+                      {brl(
+                        Math.max(
+                          0,
+                          round2(
+                            lineTotal(l) -
+                              Math.min(
+                                promoByIndex.get(idx)?.discount ?? 0,
+                                Math.max(0, lineTotal(l)),
+                              ),
+                          ),
+                        ),
+                      )}
+                    </strong>
                   </div>
                   <div className="cart-line-extra">
                     <label>
@@ -646,6 +840,19 @@ export function PdvPage() {
               <div className="cart-totals-row">
                 <span>Descontos nos itens</span>
                 <span>−{brl(itemDiscountTotal)}</span>
+              </div>
+            ) : null}
+            {promoTotal > 0 ? (
+              <div className="cart-totals-row cart-totals-promo">
+                <span>
+                  Promoções
+                  {promoSim && promoSim.lines.length === 1
+                    ? ` · ${promoSim.lines[0].promotionName}`
+                    : promoSim && promoSim.lines.length > 1
+                      ? ` · ${promoSim.lines.length} campanhas`
+                      : ''}
+                </span>
+                <span>−{brl(promoTotal)}</span>
               </div>
             ) : null}
           </div>

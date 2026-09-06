@@ -82,6 +82,12 @@ export class AppSettingsService implements OnModuleInit {
     return Number.isFinite(n) ? n : Number(SETTING_BY_KEY.get(key)?.default ?? 0);
   }
 
+  async getBoolean(key: string): Promise<boolean> {
+    const raw = await this.get(key);
+    if (typeof raw === 'boolean') return raw;
+    return Boolean(SETTING_BY_KEY.get(key)?.default);
+  }
+
   /** Catalogo + valor atual, agrupado, para a tela de configuracoes. */
   async list() {
     const values = await this.values();
@@ -97,6 +103,13 @@ export class AppSettingsService implements OnModuleInit {
       maxInstallments: await this.getNumber('sales.maxInstallments'),
       scanGapMs: await this.getNumber('sales.scanGapMs'),
       drawerLimit: await this.getNumber('cash.drawerLimit'),
+      installmentIntervalDays: await this.getNumber('finance.installmentIntervalDays'),
+      loyalty: {
+        enabled: await this.getBoolean('loyalty.enabled'),
+        cashbackPercent: await this.getNumber('loyalty.cashbackPercent'),
+        minRedeem: await this.getNumber('loyalty.minRedeem'),
+        maxRedeemPercent: await this.getNumber('loyalty.maxRedeemPercent'),
+      },
     };
   }
 

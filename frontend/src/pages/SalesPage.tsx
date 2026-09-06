@@ -11,6 +11,7 @@ import {
   storeSettingsApi,
   type FiscalStatus,
   type PaymentMethod,
+  type PaymentStatus,
   type Sale,
 } from '../lib/api-client';
 import { brl, dateTime, paymentLabel, round2, toNumber } from '../lib/format';
@@ -27,6 +28,23 @@ const fiscalLabel: Record<FiscalStatus, string> = {
   CANCELADA: 'Cancelada',
   CONTINGENCIA: 'Contingência',
 };
+
+/** Estado do pagamento na porta de pagamento (PaymentGateway). */
+const paymentStatusLabel: Record<PaymentStatus, string> = {
+  PENDENTE: 'Pendente',
+  PROCESSANDO: 'Processando',
+  AUTORIZADO: 'Autorizado',
+  CONFIRMADO: 'Confirmado',
+  NEGADO: 'Negado',
+  ESTORNADO: 'Estornado',
+};
+
+const paymentTag = (s: PaymentStatus) =>
+  s === 'CONFIRMADO'
+    ? 'tag-success'
+    : s === 'NEGADO' || s === 'ESTORNADO'
+      ? 'tag-warning'
+      : '';
 
 const fiscalTag = (s: FiscalStatus) =>
   s === 'AUTORIZADA'
@@ -285,7 +303,16 @@ export function SalesPage() {
               <ul className="list-rows" style={{ marginTop: 12 }}>
                 {detail.data.payments?.map((p) => (
                   <li key={p.id}>
-                    <span>{paymentLabel[p.method] ?? p.method}</span>
+                    <span>
+                      {paymentLabel[p.method] ?? p.method}
+                      {p.status !== 'CONFIRMADO' ? (
+                        <span className={`tag ${paymentTag(p.status)}`} style={{ marginLeft: 8 }}>
+                          {paymentStatusLabel[p.status]}
+                        </span>
+                      ) : null}
+                      {p.authorizationCode ? <small> — aut. {p.authorizationCode}</small> : null}
+                      {p.rejectionReason ? <small> — {p.rejectionReason}</small> : null}
+                    </span>
                     <strong>{brl(p.amount)}</strong>
                   </li>
                 ))}

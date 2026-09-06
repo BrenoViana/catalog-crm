@@ -203,3 +203,33 @@
   .pdv-layout { grid-template-columns: 1fr; }
   .pdv-catalog { gap: 16px; }
 }
+
+/* Campanha aplicada automaticamente pelo servidor: o operador nao digitou este
+   desconto, entao ele aparece com cor propria para nao ser confundido com o
+   desconto concedido no balcao. */
+.cart-line-promo {
+  color: var(--ok, #3f7d3f);
+  font-weight: 500;
+}
+.cart-totals-promo span {
+  color: var(--ok, #3f7d3f);
+}
+
+/* Crédito e saldo do cliente selecionado: o operador precisa dessa informação
+   antes de escolher a forma de pagamento, não depois de a venda ser recusada. */
+.customer-credit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--muted-text, #8a8f97);
+}
+
+.customer-credit strong {
+  color: var(--text, inherit);
+}
+
+.customer-credit em {
+  font-style: normal;
+}

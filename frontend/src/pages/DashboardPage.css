@@ -48,3 +48,50 @@ a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-
 @media (max-width: 900px) {
   .chart-grid { grid-template-columns: 1fr; }
 }
+
+/* Alertas operacionais: a lista fica no topo do dashboard, antes dos números.
+   A cor da borda esquerda carrega a severidade — quem passa os olhos precisa
+   distinguir "caixa aberto há 13 horas" de "crediário vencido" sem ler. */
+.ops-alerts {
+  margin-bottom: 20px;
+}
+
+.ops-alert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.ops-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--border, #d4d4d8);
+  background: var(--surface-muted, rgba(0, 0, 0, .02));
+  border-radius: 6px;
+}
+
+.ops-alert p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-muted, #6b7280);
+}
+
+.ops-alert-alto {
+  border-left-color: var(--danger, #b91c1c);
+}
+
+.ops-alert-medio {
+  border-left-color: var(--warning, #b45309);
+}
+
+@media (max-width: 700px) {
+  .ops-alert {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

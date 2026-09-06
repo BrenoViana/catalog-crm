@@ -5,16 +5,34 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ADMIN_ROLE_KEY,
   PERMISSION_CATALOG,
+  LEGACY_ROLES,
   PERMISSION_KEYS,
   SYSTEM_ROLES,
 } from './permission-catalog';
 
 /** Cache curto do conjunto efetivo por usuario — o guard roda em toda rota. */
 const CACHE_TTL_MS = 30_000;
+
+/** Politica minima de senha. */
+const MIN_PASSWORD = 8;
+const BCRYPT_ROUNDS = 10;
+
+/** Campos que podem sair para a tela — passwordHash nunca. */
+const USER_SELECT = {
+  id: true,
+  username: true,
+  name: true,
+  active: true,
+  createdAt: true,
+  roleId: true,
+  accessRole: { select: { id: true, key: true, name: true, system: true } },
+  overrides: { select: { permissionKey: true, allow: true } },
+} as const;
 
 interface CacheEntry {
   permissions: Set<string>;
@@ -269,17 +287,106 @@ export class AccessService implements OnModuleInit {
   listUsers() {
     return this.prisma.user.findMany({
       orderBy: [{ active: 'desc' }, { name: 'asc' }],
-      select: {
-        id: true,
-        username: true,
-        name: true,
-        active: true,
-        createdAt: true,
-        roleId: true,
-        accessRole: { select: { id: true, key: true, name: true, system: true } },
-        overrides: { select: { permissionKey: true, allow: true } },
-      },
+      select: USER_SELECT,
     });
+  }
+
+  async createUser(dto: {
+    username: string;
+    name: string;
+    password: string;
+    roleId: string;
+    active?: boolean;
+  }) {
+    const username = this.normalizeUsername(dto.username);
+    const exists = await this.prisma.user.findUnique({ where: { username } });
+    if (exists) throw new BadRequestException('Ja existe um usuario com este login.');
+
+    const role = await this.prisma.accessRole.findUnique({ where: { id: dto.roleId } });
+    if (!role) throw new NotFoundException('Papel nao encontrado.');
+    this.assertPassword(dto.password);
+
+    const legacy = LEGACY_ROLES.find((r) => r === role.key);
+
+    return this.prisma.user.create({
+      data: {
+        username,
+        name: dto.name.trim(),
+        passwordHash: bcrypt.hashSync(dto.password, BCRYPT_ROUNDS),
+        roleId: role.id,
+        // O enum legado acompanha o papel quando ele e um dos internos.
+        ...(legacy ? { role: legacy } : {}),
+        active: dto.active ?? true,
+      },
+      select: USER_SELECT,
+    });
+  }
+
+  async updateUser(id: string, dto: { name?: string; username?: string }) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Usuario nao encontrado.');
+
+    let username: string | undefined;
+    if (dto.username !== undefined) {
+      username = this.normalizeUsername(dto.username);
+      const taken = await this.prisma.user.findUnique({ where: { username } });
+      if (taken && taken.id !== id) {
+        throw new BadRequestException('Ja existe um usuario com este login.');
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { name: dto.name?.trim(), username },
+      select: USER_SELECT,
+    });
+    this.invalidate(id);
+    return updated;
+  }
+
+  /**
+   * Troca de senha. Trocar a PROPRIA senha exige a senha atual; um
+   * administrador redefine a de outra pessoa sem ela (fluxo de reset).
+   */
+  async setUserPassword(
+    id: string,
+    dto: { password: string; currentPassword?: string },
+    actorId: string,
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Usuario nao encontrado.');
+    this.assertPassword(dto.password);
+
+    if (id === actorId) {
+      const ok =
+        !!dto.currentPassword &&
+        bcrypt.compareSync(dto.currentPassword, user.passwordHash);
+      if (!ok) throw new BadRequestException('Senha atual incorreta.');
+    }
+
+    await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash: bcrypt.hashSync(dto.password, BCRYPT_ROUNDS) },
+    });
+    return { id, message: 'Senha alterada.' };
+  }
+
+  private normalizeUsername(raw: string) {
+    const username = raw.trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,60}$/.test(username)) {
+      throw new BadRequestException(
+        'Login deve ter de 3 a 60 caracteres: letras, numeros, ponto, hifen ou underline.',
+      );
+    }
+    return username;
+  }
+
+  private assertPassword(password: string) {
+    if (!password || password.length < MIN_PASSWORD) {
+      throw new BadRequestException(
+        `A senha precisa ter ao menos ${MIN_PASSWORD} caracteres.`,
+      );
+    }
   }
 
   async setUserRole(userId: string, roleId: string) {
@@ -336,6 +443,26 @@ export class AccessService implements OnModuleInit {
     });
     this.invalidate(userId);
     return updated;
+  }
+
+  /**
+   * Estado de acesso do usuario, para a trilha registrar o "antes".
+   * Sem o antes/depois, o AuditLog diz que alguem mexeu nas permissoes mas nao
+   * o que mudou — que e justamente o que se quer saber depois de uma fraude.
+   */
+  async accessSnapshot(userId: string) {
+    const [user, overrides] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, username: true, roleId: true, active: true },
+      }),
+      this.prisma.userPermission.findMany({
+        where: { userId },
+        select: { permissionKey: true, allow: true },
+        orderBy: { permissionKey: 'asc' },
+      }),
+    ]);
+    return user ? { ...user, overrides } : null;
   }
 
   // ------------------------------------------------------------------ apoio

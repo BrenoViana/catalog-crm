@@ -2,7 +2,7 @@ import './DashboardPage.css';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
-import { dashboardApi } from '../lib/api-client';
+import { dashboardApi, opsApi } from '../lib/api-client';
 import { brl, dateTime, num, paymentLabel } from '../lib/format';
 
 export function DashboardPage() {
@@ -20,6 +20,15 @@ export function DashboardPage() {
         { label: 'Itens vendidos hoje', value: num(data.itemsSoldToday) },
       ]
     : [];
+
+  // Alertas operacionais: a lista curta do que esta fora do lugar agora.
+  // Atualiza mais devagar que os indicadores — caixa aberto ha 13 horas nao
+  // muda a cada 30 segundos, e a consulta agrega 30 dias de fechamentos.
+  const ops = useQuery({
+    queryKey: ['ops', 'alerts'],
+    queryFn: opsApi.alerts,
+    refetchInterval: 120000,
+  });
 
   const maxDay = Math.max(1, ...(data?.salesLast7Days.map((d) => d.value) ?? [1]));
 
@@ -49,6 +58,30 @@ export function DashboardPage() {
         <div className="error-message">
           Erro ao carregar o dashboard: {error instanceof Error ? error.message : 'tente novamente'}
         </div>
+      ) : null}
+
+      {ops.data && ops.data.alerts.length > 0 ? (
+        <section className="panel ops-alerts">
+          <div className="panel-header">
+            <h2>Atenção</h2>
+            <small className="muted">{ops.data.alerts.length} alerta(s) operacional(is)</small>
+          </div>
+          <ul className="ops-alert-list">
+            {ops.data.alerts.map((a, i) => (
+              <li key={`${a.code}-${i}`} className={`ops-alert ops-alert-${a.level}`}>
+                <div>
+                  <strong>{a.title}</strong>
+                  <p>{a.detail}</p>
+                </div>
+                {a.link ? (
+                  <Link to={a.link} className="tag tag-link">
+                    Ver
+                  </Link>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       <div className="stats-grid">

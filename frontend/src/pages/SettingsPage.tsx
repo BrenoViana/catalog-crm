@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { UsersPermissionsModal } from '../components/UsersPermissionsModal';
+import { PromotionsModal } from '../components/PromotionsModal';
 import {
   appSettingsApi,
   licenseApi,
@@ -139,12 +140,15 @@ export function SettingsPage() {
   // ?modal=usuarios abre a gestão de acesso direto — link compartilhável.
   const [searchParams, setSearchParams] = useSearchParams();
   const accessOpen = searchParams.get('modal') === 'usuarios';
-  const setAccessOpen = (open: boolean) => {
+  const promoOpen = searchParams.get('modal') === 'promocoes';
+  const abrirModal = (nome: string | null) => {
     const next = new URLSearchParams(searchParams);
-    if (open) next.set('modal', 'usuarios');
+    if (nome) next.set('modal', nome);
     else next.delete('modal');
     setSearchParams(next, { replace: true });
   };
+  const setAccessOpen = (open: boolean) => abrirModal(open ? 'usuarios' : null);
+  const setPromoOpen = (open: boolean) => abrirModal(open ? 'promocoes' : null);
   const [systemDraft, setSystemDraft] = useState<Record<string, string>>({});
 
   const store = useQuery({ queryKey: ['store-settings'], queryFn: storeSettingsApi.get });
@@ -298,6 +302,25 @@ export function SettingsPage() {
 
       <section className="panel" style={{ marginBottom: 20 }}>
         <div className="panel-header">
+          <h2>Promoções</h2>
+        </div>
+        <p className="muted">
+          Campanhas de desconto automático por produto, categoria ou catálogo inteiro,
+          com vigência e prioridade. O desconto é aplicado pelo servidor no fechamento
+          da venda — o operador não precisa digitar nada, e a campanha não consome o
+          teto de desconto dele.
+        </p>
+        <button
+          className="primary-button"
+          style={{ marginTop: 12 }}
+          onClick={() => setPromoOpen(true)}
+        >
+          Gerenciar promoções
+        </button>
+      </section>
+
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header">
           <h2>Usuários e permissões</h2>
         </div>
         <p className="muted">
@@ -404,6 +427,7 @@ export function SettingsPage() {
       </section>
 
       {accessOpen ? <UsersPermissionsModal onClose={() => setAccessOpen(false)} /> : null}
+      {promoOpen ? <PromotionsModal onClose={() => setPromoOpen(false)} /> : null}
     </Layout>
   );
 }

@@ -1,0 +1,162 @@
+.promo-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.promo-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.promo-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.promo-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.promo-list li.is-selected {
+  border-color: var(--accent, #0e6e6e);
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+}
+
+.promo-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.promo-item:hover {
+  background: var(--surface-2, rgba(0, 0, 0, 0.05));
+}
+
+.promo-item small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+/* Ativa/inativa é o interruptor mais importante da tela: precisa ser
+   reconhecível de relance, porque é o que corta a campanha na hora. */
+.promo-pill {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.promo-pill.on {
+  color: #2f6a2f;
+  background: #e4efe1;
+}
+
+.promo-pill.off {
+  color: var(--text-muted);
+  background: var(--surface-2, rgba(0, 0, 0, 0.06));
+}
+
+.promo-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.promo-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.promo-form label > span {
+  color: var(--text-muted);
+}
+
+.promo-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.promo-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.promo-check input {
+  width: auto;
+}
+
+.promo-resumo {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent, #0e6e6e);
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+  border-radius: 0 8px 8px 0;
+  font-size: 0.9rem;
+}
+
+.promo-nota {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.promo-erro {
+  margin: 0;
+  color: #97392c;
+  font-size: 0.85rem;
+}
+
+.promo-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ghost-button.danger {
+  color: #97392c;
+}
+
+@media (max-width: 820px) {
+  .promo-layout {
+    grid-template-columns: 1fr;
+  }
+  .promo-list ul {
+    max-height: 200px;
+  }
+}
