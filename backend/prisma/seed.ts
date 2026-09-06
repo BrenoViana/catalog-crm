@@ -22,6 +22,28 @@ if (process.env.NODE_ENV !== 'development') {
 }
 
 async function main() {
+  // A ordem e a inversa das dependencias: filho antes de pai. Varias FKs sao
+  // RESTRICT de proposito (AuditLog.userId, DailyClosing.closedById), entao
+  // apagar fora de ordem devolve P2003 em vez de limpar.
+
+  // Financeiro
+  await prisma.payableSettlement.deleteMany();
+  await prisma.payable.deleteMany();
+  await prisma.supplier.deleteMany();
+  await prisma.receivableSettlement.deleteMany();
+  await prisma.receivable.deleteMany();
+  await prisma.dailyClosing.deleteMany();
+
+  // Fidelidade
+  await prisma.loyaltyEntry.deleteMany();
+  await prisma.loyaltyAccount.deleteMany();
+
+  // Devolucoes e trilha
+  await prisma.saleReturnItem.deleteMany();
+  await prisma.saleReturn.deleteMany();
+  await prisma.auditLog.deleteMany();
+
+  // Venda e caixa
   await prisma.cashMovement.deleteMany();
   await prisma.fiscalDocument.deleteMany();
   await prisma.payment.deleteMany();
@@ -29,12 +51,20 @@ async function main() {
   await prisma.stockMovement.deleteMany();
   await prisma.sale.deleteMany();
   await prisma.cashSession.deleteMany();
+
+  // Catalogo
+  await prisma.promotion.deleteMany();
   await prisma.stockItem.deleteMany();
   await prisma.product.deleteMany();
   await prisma.taxGroup.deleteMany();
   await prisma.category.deleteMany();
   await prisma.customer.deleteMany();
+
+  // Acesso. O catalogo de permissoes e de papeis e ressincronizado pelo
+  // AccessService no boot, entao aqui so caem os vinculos por usuario.
+  await prisma.userPermission.deleteMany();
   await prisma.user.deleteMany();
+
   await prisma.storeSettings.deleteMany();
   await prisma.license.deleteMany();
 
