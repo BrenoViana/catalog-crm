@@ -1,10 +1,17 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put } from '@nestjs/common';
+import { IsBoolean } from 'class-validator';
 import { StoreSettingsService } from './store-settings.service';
 import { UpdateStoreSettingsDto } from './dto/update-store-settings.dto';
 import { RequirePermissions } from '../common/permissions.decorator';
+import { RequireModule } from '../license/module.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthorizationService } from '../access/authorization.service';
 import { Public } from '../common/public.decorator';
+
+class SetContingencyDto {
+  @IsBoolean()
+  active: boolean;
+}
 
 @Controller('store-settings')
 export class StoreSettingsController {
@@ -43,6 +50,28 @@ export class StoreSettingsController {
       actorId,
       targetType: 'StoreSettings',
       detail: { campos: Object.keys(dto ?? {}).sort() },
+    });
+    return result;
+  }
+
+  /**
+   * Liga/desliga o modo de contingencia da NFC-e. Decisao sensivel e auditada:
+   * enquanto ligado, toda venda emite direto na serie de contingencia.
+   */
+  @RequireModule('fiscal')
+  @RequirePermissions('fiscal.contingency')
+  @Post('contingency')
+  async setContingency(
+    @Body() dto: SetContingencyDto,
+    @CurrentUser('userId') actorId: string,
+  ) {
+    const result = await this.storeSettingsService.setContingency(dto.active);
+    await this.authorization.record({
+      action: 'fiscal.contingency',
+      permissionKey: 'fiscal.contingency',
+      actorId,
+      targetType: 'StoreSettings',
+      detail: { active: dto.active },
     });
     return result;
   }

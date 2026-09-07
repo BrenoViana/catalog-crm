@@ -13,6 +13,7 @@ import {
 } from '../common/business-date';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppSettingsService } from '../settings/app-settings.service';
+import { TerminalsService } from '../terminals/terminals.service';
 import {
   CashMovementDto,
   CloseCashDto,
@@ -79,6 +80,7 @@ export class CashService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: AppSettingsService,
+    private readonly terminals: TerminalsService,
   ) {}
 
   async current(operatorId: string) {
@@ -147,12 +149,19 @@ export class CashService {
         );
       }
 
+      const { terminalId, terminalLabel } = await this.terminals.resolveForWrite(
+        tx,
+        { terminalCode: dto.terminalCode, terminalName: dto.terminal },
+      );
+
       return tx.cashSession.create({
         data: {
           operatorId,
           openingAmount: D(dto.openingAmount),
           notes: dto.notes,
-          terminal: dto.terminal?.trim() || null,
+          // Rotulo = o que foi digitado; o vinculo estavel e terminalId.
+          terminal: dto.terminal?.trim() || terminalLabel || null,
+          terminalId,
           movements: {
             create: { type: 'ABERTURA', amount: D(dto.openingAmount), userId: operatorId },
           },

@@ -1469,9 +1469,210 @@ async function main() {
       );
     });
 
+    // 15) Numeracao de contingencia (F3): provedor cai -> documento entra em
+    // CONTINGENCIA na serie do terminal; a rede volta -> transmite e autoriza,
+    // sem renumerar. `clientRef` torna o reenvio idempotente.
+    const dbC = app.get(PrismaService);
+    // As vendas de contingencia sao canceladas via API (nao da para hard-delete:
+    // ha pagamento, movimento e documento fiscal pendurados). Aqui so soltamos
+    // os terminais de teste — o FK Sale.terminalId e ON DELETE SET NULL.
+    const dropE2eTerminals = async () => {
+      await dbC.terminal
+        .deleteMany({
+          where: {
+            OR: [
+              { code: { in: ['CAIXA-E2E', 'CAIXA-BAD', 'CAIXA-E2E-CONTINGENCIA'] } },
+              { name: { startsWith: 'Caixa E2E' } },
+            ],
+          },
+        })
+        .catch(() => undefined);
+    };
+    await dropE2eTerminals();
+
+    const contProduct = await api('POST', '/products', {
+      sku: `E2E-CONT-${Date.now()}`,
+      name: 'Produto contingencia E2E',
+      price: 10,
+      cost: 4,
+      unit: 'UN',
+      initialStock: 20,
+      minStock: 1,
+    });
+    const contProductId = contProduct.body.id;
+
+    const term = await api('POST', '/terminals', {
+      code: 'CAIXA-E2E',
+      name: 'Caixa E2E Contingencia',
+      contingencySeries: 990,
+      contingencyRangeStart: 1,
+      contingencyRangeEnd: 5,
+    });
+    check('cria terminal com faixa de contingencia -> 201', () => {
+      assert.equal(term.status, 201);
+      assert.equal(term.body.contingencyNextNumber, 1);
+    });
+    const badRange = await api('POST', '/terminals', {
+      code: 'CAIXA-BAD',
+      name: 'Caixa faixa invertida',
+      contingencySeries: 991,
+      contingencyRangeStart: 9,
+      contingencyRangeEnd: 2,
+    });
+    check('faixa de contingencia invertida -> 400', () => {
+      assert.equal(badRange.status, 400);
+    });
+
+    await api('PUT', '/app-settings', {
+      settings: [
+        { key: 'fiscal.simulateOutage', value: true },
+        { key: 'fiscal.maxEmitAttempts', value: 1 },
+      ],
+    });
+
+    const contSale = await api('POST', '/sales', {
+      items: [{ productId: contProductId, quantity: 1 }],
+      payments: [{ method: 'DINHEIRO', amount: 10 }],
+      terminalCode: 'CAIXA-E2E',
+      clientRef: 'e2e-cont-1',
+    });
+    check('venda registrada e vinculada ao terminal', () => {
+      assert.equal(contSale.status, 201);
+      assert.ok(contSale.body.terminalId, 'venda sem terminalId');
+    });
+
+    // A emissao roda em segundo plano no fechamento da venda. Aguardamos ate o
+    // documento sair de PENDENTE/PROCESSANDO; se ficar parado em PENDENTE
+    // (o disparo assincrono nao pegou, ou uma falha o devolveu), cutucamos com
+    // /emit — PENDENTE e estado seguro para reemitir, a trava condicional cuida
+    // da concorrencia.
+    const waitFiscal = async (saleId: string) => {
+      let doc: any = null;
+      for (let i = 0; i < 80; i++) {
+        doc = (await api('GET', `/sales/${saleId}`)).body?.fiscalDocument;
+        if (doc && !['PENDENTE', 'PROCESSANDO'].includes(doc.status)) return doc;
+        if (doc && doc.status === 'PENDENTE' && i % 4 === 3) {
+          await api('POST', `/fiscal/documents/${doc.id}/emit`).catch(
+            () => undefined,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return doc;
+    };
+    const contDoc = await waitFiscal(contSale.body.id);
+    check('provedor indisponivel -> documento em CONTINGENCIA na serie do terminal', () => {
+      assert.equal(contDoc.status, 'CONTINGENCIA');
+      assert.equal(contDoc.emissionType, 'CONTINGENCIA_OFFLINE');
+      assert.equal(contDoc.series, 990);
+      assert.equal(contDoc.number, 1);
+      assert.ok(contDoc.emittedInContingencyAt, 'sem emittedInContingencyAt');
+    });
+
+    const replay = await api('POST', '/sales', {
+      items: [{ productId: contProductId, quantity: 1 }],
+      payments: [{ method: 'DINHEIRO', amount: 10 }],
+      terminalCode: 'CAIXA-E2E',
+      clientRef: 'e2e-cont-1',
+    });
+    check('reenvio com o mesmo clientRef devolve a mesma venda', () => {
+      assert.ok([200, 201].includes(replay.status), `reenvio falhou: ${replay.status}`);
+      assert.equal(replay.body.id, contSale.body.id);
+      assert.equal(replay.body.number, contSale.body.number);
+    });
+    const noTerminal = await api('POST', '/sales', {
+      items: [{ productId: contProductId, quantity: 1 }],
+      payments: [{ method: 'DINHEIRO', amount: 10 }],
+      clientRef: 'e2e-cont-sem-terminal',
+    });
+    check('clientRef sem terminal -> 400', () => {
+      assert.equal(noTerminal.status, 400);
+    });
+
+    await api('PUT', '/app-settings', {
+      settings: [{ key: 'fiscal.simulateOutage', value: false }],
+    });
+    const recon = await api('POST', '/fiscal/process-contingency');
+    const contDoc2 = (await api('GET', `/sales/${contSale.body.id}`)).body
+      .fiscalDocument;
+    check('contingencia reconciliada -> AUTORIZADA, serie preservada, tpEmis=9', () => {
+      assert.ok(recon.body.picked >= 1, 'process-contingency nao pegou o documento');
+      assert.equal(contDoc2.status, 'AUTORIZADA');
+      assert.equal(contDoc2.series, 990);
+      assert.equal(contDoc2.number, 1);
+      assert.equal(String(contDoc2.accessKey).length, 44);
+      // tpEmis fica na posicao 35 da chave (indice 34): UF(2)+AAMM(4)+CNPJ(14)+
+      // mod(2)+serie(3)+numero(9) = 34 caracteres antes dele.
+      assert.equal(String(contDoc2.accessKey)[34], '9');
+    });
+
+    // Alerta operacional: documento preso em contingencia ha mais tempo que o
+    // limite vira alerta alto. Provedor cai ANTES da venda, para o documento
+    // nascer/entrar em contingencia.
+    await api('PUT', '/app-settings', {
+      settings: [
+        { key: 'fiscal.simulateOutage', value: true },
+        { key: 'fiscal.maxEmitAttempts', value: 1 },
+      ],
+    });
+    const staleSale = await api('POST', '/sales', {
+      items: [{ productId: contProductId, quantity: 1 }],
+      payments: [{ method: 'DINHEIRO', amount: 10 }],
+      terminalCode: 'CAIXA-E2E',
+      clientRef: 'e2e-cont-stale',
+    });
+    const staleDoc = await waitFiscal(staleSale.body.id);
+    check('segunda venda em contingencia usa o proximo numero da faixa', () => {
+      assert.equal(staleDoc.status, 'CONTINGENCIA');
+      assert.equal(staleDoc.series, 990);
+      assert.equal(staleDoc.number, 2);
+    });
+    await dbC.fiscalDocument.update({
+      where: { id: staleDoc.id },
+      data: { emittedInContingencyAt: new Date(Date.now() - 48 * 3600_000) },
+    });
+    const alerts = await api('GET', '/ops/alerts');
+    check('documento em contingencia ha >24h vira alerta alto', () => {
+      const a = alerts.body.alerts.find(
+        (x: any) => x.code === 'fiscal.contingencyStale',
+      );
+      assert.ok(a, 'alerta fiscal.contingencyStale ausente');
+      assert.equal(a.level, 'alto');
+    });
+
+    // Limpeza da secao de contingencia.
+    await api('PUT', '/app-settings', {
+      settings: [
+        { key: 'fiscal.simulateOutage', value: false },
+        { key: 'fiscal.maxEmitAttempts', value: 5 },
+      ],
+    });
+    await api('POST', `/sales/${contSale.body.id}/cancel`, {
+      reason: 'limpeza do e2e de contingencia',
+    });
+    await api('POST', `/sales/${staleSale.body.id}/cancel`, {
+      reason: 'limpeza do e2e de contingencia prolongada',
+    });
+    await dropE2eTerminals();
+    if (contProductId) {
+      await api('DELETE', `/products/${contProductId}`).catch(() => undefined);
+    }
+
   } finally {
     // Limpeza best-effort: inativa os produtos de teste.
     if (token) {
+      // Restaura os ajustes fiscais que a secao de contingencia mexe — se ela
+      // abortar no meio, `simulateOutage=true` deixaria a NFC-e quebrada para a
+      // proxima execucao.
+      await api('PUT', '/app-settings', {
+        settings: [
+          { key: 'fiscal.simulateOutage', value: false },
+          { key: 'fiscal.maxEmitAttempts', value: 5 },
+        ],
+      }).catch(() => undefined);
+      await api('POST', '/store-settings/contingency', { active: false }).catch(
+        () => undefined,
+      );
       if (productId) {
         await api('DELETE', `/products/${productId}`).catch(() => undefined);
       }

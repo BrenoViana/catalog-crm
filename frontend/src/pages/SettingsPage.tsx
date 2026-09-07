@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { UsersPermissionsModal } from '../components/UsersPermissionsModal';
 import { PromotionsModal } from '../components/PromotionsModal';
+import TerminalsSettings from '../components/TerminalsSettings';
 import {
   appSettingsApi,
   licenseApi,
@@ -279,6 +280,8 @@ export function SettingsPage() {
           integração da NFC-e.
         </p>
       </section>
+
+      <TerminalsSettings />
 
       <section className="panel" style={{ marginBottom: 20 }}>
         <div className="panel-header">

@@ -21,6 +21,16 @@ export interface FiscalEmitContext {
   store: StoreSettings;
 }
 
+/**
+ * Regra de contingencia para um provedor real: quando
+ * `document.emissionType === 'CONTINGENCIA_OFFLINE'`, a NFC-e sai com tpEmis=9,
+ * dhCont = `document.emittedInContingencyAt` e xJust; e, na reconexao, o mesmo
+ * XML/chave e transmitido a SEFAZ — a serie e o numero de contingencia NUNCA
+ * sao renumerados para a serie normal. A transicao para CONTINGENCIA e decisao
+ * do FiscalService, nao do provedor: `emit` continua devolvendo so
+ * AUTORIZADA/REJEITADA.
+ */
+
 export interface FiscalEmitResult {
   status: 'AUTORIZADA' | 'REJEITADA';
   accessKey?: string;

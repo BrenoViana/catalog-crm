@@ -54,9 +54,15 @@ export class OpsService {
   ) {}
 
   async alerts(viewerId: string): Promise<{ generatedAt: Date; alerts: OpsAlert[] }> {
-    const [maxShiftHours, divergenceAlert, canSeeOperators] = await Promise.all([
+    const [
+      maxShiftHours,
+      divergenceAlert,
+      contingencyStaleHours,
+      canSeeOperators,
+    ] = await Promise.all([
       this.settings.getNumber('ops.maxShiftHours'),
       this.settings.getNumber('ops.divergenceAlert'),
+      this.settings.getNumber('fiscal.contingencyStaleHours'),
       // Divergencia acumulada com nome e valor e avaliacao de conduta de
       // funcionario: quem le o painel nao herda esse acesso por tabela, ele sai
       // da permissao criada para isso (SEC-070).
@@ -78,6 +84,7 @@ export class OpsService {
       yesterdayClosing,
       unsettled,
       overdue,
+      contingencyDocs,
     ] = await Promise.all([
         this.prisma.cashSession.findMany({
           where: { status: 'ABERTA', openedAt: { lt: shiftCutoff } },
@@ -132,6 +139,13 @@ export class OpsService {
           _count: true,
           _sum: { amount: true, paidAmount: true },
           where: { status: { in: ['ABERTO', 'PARCIAL'] }, dueDate: { lt: now } },
+        }),
+        // NFC-e em contingencia que ainda nao chegou a SEFAZ. Inerte onde o
+        // modulo fiscal nunca gerou contingencia.
+        this.prisma.fiscalDocument.aggregate({
+          _count: true,
+          _min: { emittedInContingencyAt: true },
+          where: { status: 'CONTINGENCIA' },
         }),
       ]);
 
@@ -259,6 +273,27 @@ export class OpsService {
         link: '/financeiro',
         data: { titulos: overdue._count, saldo: overdueBalance.toFixed(2) },
       });
+    }
+
+    // NFC-e presa em contingencia acima do limite: a nota autorizada offline
+    // ainda nao foi transmitida a SEFAZ, e o prazo legal corre.
+    const oldestContingency = contingencyDocs._min.emittedInContingencyAt;
+    if (contingencyDocs._count > 0 && oldestContingency) {
+      const hours = Math.floor(
+        (now.getTime() - oldestContingency.getTime()) / HOUR_MS,
+      );
+      if (hours >= contingencyStaleHours) {
+        alerts.push({
+          code: 'fiscal.contingencyStale',
+          level: 'alto',
+          title: `NFC-e em contingencia ha mais de ${hours}h`,
+          detail:
+            `${contingencyDocs._count} documento(s) fiscal(is) em contingencia ainda nao ` +
+            `transmitido(s) a SEFAZ. O mais antigo ha ${hours} horas.`,
+          link: '/fiscal',
+          data: { documentos: contingencyDocs._count, horas: hours },
+        });
+      }
     }
 
     const weight: Record<AlertLevel, number> = { alto: 0, medio: 1, baixo: 2 };

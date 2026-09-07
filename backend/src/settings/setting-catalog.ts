@@ -107,6 +107,28 @@ export const SETTING_CATALOG: SettingDef[] = [
     options: ['fake'],
   },
   {
+    key: 'fiscal.contingencyStaleHours',
+    group: 'Fiscal',
+    label: 'Horas em contingencia antes do alerta',
+    description:
+      'Documento fiscal parado em contingencia acima deste tempo, ainda sem ' +
+      'chegar a SEFAZ, vira alerta operacional.',
+    type: 'number',
+    default: 24,
+    min: 1,
+    max: 168,
+  },
+  {
+    key: 'fiscal.simulateOutage',
+    group: 'Fiscal',
+    label: 'Simular SEFAZ inacessivel',
+    description:
+      'Somente com o provedor "fake": forca falha de comunicacao a cada emissao ' +
+      'para exercitar a contingencia. Um provedor real ignora este ajuste.',
+    type: 'boolean',
+    default: false,
+  },
+  {
     key: 'cash.drawerLimit',
     group: 'Caixa',
     label: 'Teto de dinheiro na gaveta (R$)',

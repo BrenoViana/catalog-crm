@@ -12,6 +12,7 @@ import { PromotionsModule } from './promotions/promotions.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { CustomersModule } from './customers/customers.module';
 import { SalesModule } from './sales/sales.module';
+import { TerminalsModule } from './terminals/terminals.module';
 import { PaymentsModule } from './payments/payments.module';
 import { FiscalModule } from './fiscal/fiscal.module';
 import { CashModule } from './cash/cash.module';
@@ -39,6 +40,7 @@ import { OpsModule } from './ops/ops.module';
     InventoryModule,
     CustomersModule,
     SalesModule,
+    TerminalsModule,
     PaymentsModule,
     FiscalModule,
     CashModule,

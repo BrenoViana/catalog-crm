@@ -11,6 +11,8 @@ import { MetricsService } from '../common/metrics.service';
 import { AuthorizationService } from '../access/authorization.service';
 import { ReceivablesService } from '../finance/receivables.service';
 import { FiscalService } from '../fiscal/fiscal.service';
+import { FiscalNumberingService } from '../fiscal/fiscal-numbering.service';
+import { TerminalsService } from '../terminals/terminals.service';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { PaymentsService } from '../payments/payments.service';
 import { PromotionsService } from '../promotions/promotions.service';
@@ -42,6 +44,8 @@ export class SalesService {
     private readonly loyalty: LoyaltyService,
     private readonly settings: AppSettingsService,
     private readonly metrics: MetricsService,
+    private readonly terminals: TerminalsService,
+    private readonly fiscalNumbering: FiscalNumberingService,
   ) {}
 
   list(params: { status?: string; take?: number }) {
@@ -88,6 +92,32 @@ export class SalesService {
 
   async create(dto: CreateSaleDto, operatorId: string, grantToken?: string) {
     if (!operatorId) throw new BadRequestException('Operador nao identificado.');
+
+    // Resolve o terminal (codigo ou nome livre -> id) antes da transacao: um
+    // eventual cadastro lazy do terminal nao precisa ser atomico com a venda, e
+    // a checagem de idempotencia abaixo precisa do terminalId.
+    const { terminalId, terminalLabel } = await this.terminals.resolveForWrite(
+      this.prisma,
+      { terminalCode: dto.terminalCode, terminalName: dto.terminal },
+    );
+
+    // `clientRef` so faz sentido com um terminal identificado: sem isso, a
+    // chave idempotente nao tem escopo e um cliente anonimo poderia colar
+    // varias vendas na mesma linha (ou ocupar o slot de outro).
+    if (dto.clientRef && !terminalId) {
+      throw new BadRequestException(
+        'clientRef exige um terminal identificado (envie terminal ou terminalCode).',
+      );
+    }
+    // Reenvio da fila offline: se a venda ja existe para este par
+    // (terminal, clientRef), devolve a que ja foi gravada.
+    if (dto.clientRef && terminalId) {
+      const existing = await this.prisma.sale.findUnique({
+        where: { terminalId_clientRef: { terminalId, clientRef: dto.clientRef } },
+        select: { id: true },
+      });
+      if (existing) return this.getForCheckout(existing.id);
+    }
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
@@ -342,7 +372,9 @@ export class SalesService {
     );
 
     let cashback = D(0);
-    const sale = await this.prisma.$transaction(async (tx) => {
+    let contingency = false;
+    const runSaleTransaction = () =>
+      this.prisma.$transaction(async (tx) => {
       // Serializa a alocacao de numero de venda entre transacoes concorrentes.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SALE_NUMBER_LOCK})`;
 
@@ -378,7 +410,12 @@ export class SalesService {
           discount: saleDiscount,
           total,
           note: dto.note,
-          terminal: dto.terminal?.trim() || null,
+          // O rotulo exibido continua sendo o que o operador digitou; o
+          // vinculo estavel e terminalId. So caimos no nome do cadastro
+          // quando nada foi digitado (o dispositivo mandou so o codigo).
+          terminal: dto.terminal?.trim() || terminalLabel || null,
+          terminalId,
+          clientRef: dto.clientRef ?? null,
           customerId: dto.customerId ?? null,
           operatorId,
           cashSessionId: openSession?.id ?? null,
@@ -497,34 +534,98 @@ export class SalesService {
         });
       }
 
-      // Cria o documento fiscal PENDENTE dentro da transacao (numeracao da
-      // NFC-e). A emissao junto ao provedor acontece fora da transacao, logo
-      // apos o commit, para nao segurar o PDV.
+      // Cria o documento fiscal dentro da transacao (numeracao da NFC-e). A
+      // emissao junto ao provedor acontece fora da transacao, logo apos o
+      // commit, para nao segurar o PDV.
       const store = fiscalLicenciado
         ? await tx.storeSettings.findFirst({
-            select: { id: true, nfceSeries: true, nfceEnvironment: true },
+            select: {
+              id: true,
+              nfceSeries: true,
+              nfceEnvironment: true,
+              nfceContingencyActive: true,
+              nfceContingencySeries: true,
+            },
           })
         : null;
       if (store) {
-        const bumped = await tx.storeSettings.update({
-          where: { id: store.id },
-          data: { nfceNextNumber: { increment: 1 } },
-          select: { nfceNextNumber: true },
+        const contingencyPossible =
+          store.nfceContingencyActive &&
+          (await this.fiscalNumbering.isConfigured(tx, { terminalId }));
+        if (contingencyPossible) {
+          // Loja em contingencia declarada ("a SEFAZ caiu, continue vendendo"):
+          // o documento ja nasce na serie de contingencia; o runner o
+          // transmite quando a rede voltar.
+          const { series, number } = await this.fiscalNumbering.allocate(tx, {
+            terminalId,
+          });
+          await tx.fiscalDocument.create({
+            data: {
+              saleId: sale.id,
+              model: 65,
+              series,
+              number,
+              status: 'CONTINGENCIA',
+              emissionType: 'CONTINGENCIA_OFFLINE',
+              emittedInContingencyAt: new Date(),
+              contingencyRetryAt: new Date(),
+              environment: store.nfceEnvironment,
+            },
+          });
+          contingency = true;
+        } else {
+          const bumped = await tx.storeSettings.update({
+            where: { id: store.id },
+            data: { nfceNextNumber: { increment: 1 } },
+            select: { nfceNextNumber: true },
+          });
+          await tx.fiscalDocument.create({
+            data: {
+              saleId: sale.id,
+              model: 65,
+              series: store.nfceSeries,
+              number: bumped.nfceNextNumber - 1,
+              status: 'PENDENTE',
+              environment: store.nfceEnvironment,
+            },
+          });
+        }
+      }
+
+      if (contingency) {
+        await tx.sale.update({
+          where: { id: sale.id },
+          data: { origin: 'CONTINGENCIA' },
         });
-        await tx.fiscalDocument.create({
-          data: {
-            saleId: sale.id,
-            model: 65,
-            series: store.nfceSeries,
-            number: bumped.nfceNextNumber - 1,
-            status: 'PENDENTE',
-            environment: store.nfceEnvironment,
-          },
-        });
+        sale.origin = 'CONTINGENCIA';
       }
 
       return sale;
     });
+
+    let sale: Awaited<ReturnType<typeof runSaleTransaction>>;
+    try {
+      sale = await runSaleTransaction();
+    } catch (err) {
+      // Corrida entre dois reenvios do mesmo par (terminal, clientRef): o outro
+      // ganhou a chave unica. Devolve a venda que ele gravou, nao um erro.
+      if (
+        dto.clientRef &&
+        terminalId &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002' &&
+        JSON.stringify(err.meta?.target ?? '').includes('clientRef')
+      ) {
+        const other = await this.prisma.sale.findUnique({
+          where: {
+            terminalId_clientRef: { terminalId, clientRef: dto.clientRef },
+          },
+          select: { id: true },
+        });
+        if (other) return this.getForCheckout(other.id);
+      }
+      throw err;
+    }
 
     if (discountApprover) {
       await this.authorization.record({
@@ -572,6 +673,7 @@ export class SalesService {
     // desconfia que alguma coisa parou.
     this.metrics.increment('vendas.concluidas');
     this.metrics.increment('vendas.itens', lines.length);
+    if (contingency) this.metrics.increment('vendas.contingencia');
 
     // Autorizacao dos pagamentos que passam por gateway. Fora da transacao,
     // pela mesma razao da emissao fiscal: chamada externa nao segura lock de
@@ -587,7 +689,9 @@ export class SalesService {
 
     // Emissao fiscal assincrona: o resultado (AUTORIZADA/REJEITADA) fica no
     // proprio documento; uma falha aqui nunca invalida a venda ja concluida.
-    if (fiscalLicenciado) {
+    // Venda em contingencia ja tem documento em CONTINGENCIA — o runner de
+    // reconciliacao e dono dele, nao ha o que disparar aqui.
+    if (fiscalLicenciado && !contingency) {
       void this.fiscal.emitForSale(sale.id).catch((err) => {
         this.log.error(
           `Falha ao disparar emissao fiscal da venda ${sale.id}: ${
@@ -605,6 +709,27 @@ export class SalesService {
       // O recibo do PDV mostra o saldo que o cliente ganhou: e o unico momento
       // em que ele esta na frente do operador para ouvir isso.
       loyaltyEarned: cashback,
+    };
+  }
+
+  /**
+   * Recompoe a resposta do checkout para uma venda ja gravada — usado no
+   * reenvio idempotente (mesmo par terminal+clientRef) e na corrida entre dois
+   * reenvios simultaneos.
+   */
+  private async getForCheckout(saleId: string) {
+    const sale = await this.prisma.sale.findUniqueOrThrow({
+      where: { id: saleId },
+      include: { items: true, payments: true },
+    });
+    const accrued = await this.prisma.loyaltyEntry.aggregate({
+      where: { saleId, type: 'ACUMULO' },
+      _sum: { amount: true },
+    });
+    return {
+      ...sale,
+      payments: await this.payments.listForCheckout(saleId),
+      loyaltyEarned: D(accrued._sum.amount ?? 0),
     };
   }
 

@@ -96,6 +96,23 @@ enum FiscalStatus {
   CONTINGENCIA
 }
 
+/// Como a venda entrou no sistema. ONLINE e o balcao normal, com o banco
+/// disponivel. CONTINGENCIA marca a venda registrada enquanto a emissao da
+/// NFC-e roda numa serie propria de contingencia — a nota so chega a SEFAZ na
+/// reconexao.
+enum SaleOrigin {
+  ONLINE
+  CONTINGENCIA
+}
+
+/// Tipo de emissao do documento fiscal. CONTINGENCIA_OFFLINE numera numa serie
+/// reservada e, no XML de verdade, corresponde a tpEmis=9 + dhCont; a
+/// transmissao a SEFAZ acontece depois, sem renumerar.
+enum FiscalEmissionType {
+  NORMAL
+  CONTINGENCIA_OFFLINE
+}
+
 enum CashSessionStatus {
   ABERTA
   FECHADA
@@ -461,15 +478,25 @@ model Customer {
 // ---------------------------------------------------------------------------
 
 model Sale {
-  id       String     @id @default(uuid())
-  number   Int        @unique
-  status   SaleStatus @default(ABERTA)
-  /// Nome do terminal/caixa que registrou a venda (por dispositivo).
-  terminal String?
-  subtotal Decimal    @default(0) @db.Decimal(12, 2)
-  discount Decimal    @default(0) @db.Decimal(12, 2)
-  total    Decimal    @default(0) @db.Decimal(12, 2)
-  note     String?
+  id          String     @id @default(uuid())
+  number      Int        @unique
+  status      SaleStatus @default(ABERTA)
+  origin      SaleOrigin @default(ONLINE)
+  /// Nome do terminal/caixa que registrou a venda (por dispositivo). Mantido
+  /// como rotulo para exibicao e relatorios; a identidade estavel e terminalId.
+  terminal    String?
+  /// Terminal registrado que originou a venda. Anulavel: vendas historicas e
+  /// terminais nunca cadastrados ficam sem vinculo.
+  terminalId  String?
+  terminalRef Terminal?  @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  /// Chave idempotente do cliente que emitiu a venda (fila offline). So existe
+  /// junto de terminalId; um reenvio com o mesmo par devolve a venda ja
+  /// gravada, nunca uma segunda.
+  clientRef   String?
+  subtotal    Decimal    @default(0) @db.Decimal(12, 2)
+  discount    Decimal    @default(0) @db.Decimal(12, 2)
+  total       Decimal    @default(0) @db.Decimal(12, 2)
+  note        String?
 
   customerId    String?
   customer      Customer?    @relation(fields: [customerId], references: [id])
@@ -492,27 +519,29 @@ model Sale {
   receivables    Receivable[]
   loyaltyEntries LoyaltyEntry[]
 
+  @@unique([terminalId, clientRef])
   @@index([status])
   @@index([createdAt])
+  @@index([terminalId])
 }
 
 model SaleItem {
-  id            String  @id @default(uuid())
+  id            String   @id @default(uuid())
   saleId        String
-  sale          Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale          Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
   productId     String
-  product       Product @relation(fields: [productId], references: [id])
+  product       Product  @relation(fields: [productId], references: [id])
   description   String // snapshot do nome do produto no momento da venda
-  quantity      Decimal @db.Decimal(12, 3)
-  unitPrice     Decimal @db.Decimal(12, 2) // snapshot do preco
+  quantity      Decimal  @db.Decimal(12, 3)
+  unitPrice     Decimal  @db.Decimal(12, 2) // snapshot do preco
   /// Desconto total do item = concedido pelo operador + promocional.
-  discount      Decimal @default(0) @db.Decimal(12, 2)
+  discount      Decimal  @default(0) @db.Decimal(12, 2)
   /// Parte do desconto que veio de campanha automatica, e qual campanha foi.
   /// Snapshot: a promocao pode ser editada ou apagada depois da venda.
-  promoDiscount Decimal @default(0) @db.Decimal(12, 2)
+  promoDiscount Decimal  @default(0) @db.Decimal(12, 2)
   promotionId   String?
   promotionName String?
-  total         Decimal @db.Decimal(12, 2)
+  total         Decimal  @db.Decimal(12, 2)
   /// Snapshot do custo unitario do produto no momento da venda.
   /// Sem ele a margem historica se desloca a cada reprecificacao de fornecedor:
   /// o relatorio recalculava o CMV de ontem com o custo de hoje. `null` quando
@@ -621,28 +650,36 @@ model SaleReturnItem {
 // ---------------------------------------------------------------------------
 
 model FiscalDocument {
-  id              String       @id @default(uuid())
-  saleId          String       @unique
-  sale            Sale         @relation(fields: [saleId], references: [id])
-  model           Int          @default(65)
-  series          Int
-  number          Int
-  status          FiscalStatus @default(PENDENTE)
-  environment     String       @default("homologacao")
-  provider        String?
-  accessKey       String?      @unique
-  protocol        String?
-  qrCode          String?
-  xmlUrl          String?
-  danfeUrl        String?
-  rejectionReason String?
-  attempts        Int          @default(0)
-  lastAttemptAt   DateTime?
-  issuedAt        DateTime?
-  canceledAt      DateTime?
-  createdAt       DateTime     @default(now())
+  id                     String             @id @default(uuid())
+  saleId                 String             @unique
+  sale                   Sale               @relation(fields: [saleId], references: [id])
+  model                  Int                @default(65)
+  series                 Int
+  number                 Int
+  status                 FiscalStatus       @default(PENDENTE)
+  emissionType           FiscalEmissionType @default(NORMAL)
+  environment            String             @default("homologacao")
+  provider               String?
+  accessKey              String?            @unique
+  protocol               String?
+  qrCode                 String?
+  xmlUrl                 String?
+  danfeUrl               String?
+  rejectionReason        String?
+  attempts               Int                @default(0)
+  lastAttemptAt          DateTime?
+  /// Momento em que o documento entrou em contingencia (o dhCont da NFC-e).
+  emittedInContingencyAt DateTime?
+  /// Agenda do runner de reconciliacao: proxima tentativa de transmitir a
+  /// contingencia a SEFAZ. Backoff exponencial enquanto o provedor nao responde.
+  contingencyRetryAt     DateTime?
+  issuedAt               DateTime?
+  canceledAt             DateTime?
+  createdAt              DateTime           @default(now())
 
+  @@unique([model, series, number])
   @@index([status])
+  @@index([status, contingencyRetryAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -654,8 +691,11 @@ model CashSession {
   operatorId            String
   operator              User              @relation(fields: [operatorId], references: [id])
   status                CashSessionStatus @default(ABERTA)
-  /// Terminal/caixa em que o turno foi aberto.
+  /// Terminal/caixa em que o turno foi aberto (rotulo para exibicao).
   terminal              String?
+  /// Terminal registrado em que o turno foi aberto. Anulavel, como em Sale.
+  terminalId            String?
+  terminalRef           Terminal?         @relation(fields: [terminalId], references: [id], onDelete: SetNull)
   openingAmount         Decimal           @db.Decimal(12, 2)
   openedAt              DateTime          @default(now())
   closingCountedAmount  Decimal?          @db.Decimal(12, 2)
@@ -671,6 +711,40 @@ model CashSession {
   payableSettlements    PayableSettlement[]
 
   @@index([status])
+  @@index([terminalId])
+}
+
+/// Terminal/caixa registrado. Hoje o nome do terminal vive so no localStorage
+/// do dispositivo; este cadastro da a ele uma identidade estavel no servidor —
+/// pre-requisito para a numeracao de contingencia (uma serie fiscal reservada
+/// por terminal) e para a fila offline que vira depois.
+model Terminal {
+  id     String  @id @default(uuid())
+  /// Codigo curto e estavel do dispositivo (ex.: "CAIXA-01"). Nunca muda depois
+  /// de criado: e a identidade que a venda offline carrega.
+  code   String  @unique
+  name   String
+  active Boolean @default(true)
+
+  /// Faixa de numeracao fiscal de contingencia reservada a ESTE terminal.
+  /// Nula = o terminal usa a serie de contingencia da loja (StoreSettings).
+  contingencySeries     Int?
+  contingencyRangeStart Int?
+  contingencyRangeEnd   Int?
+  contingencyNextNumber Int?
+
+  /// Toque a cada venda / abertura de turno vindos deste terminal.
+  lastSeenAt DateTime?
+  /// Reservado para a fila offline: ultima sincronizacao bem-sucedida.
+  lastSyncAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales        Sale[]
+  cashSessions CashSession[]
+
+  @@index([active])
 }
 
 model CashMovement {
@@ -765,6 +839,14 @@ model StoreSettings {
   nfceCsc             String?
   fiscalProvider      String? // ex.: "focusnfe", "plugnotas"
   fiscalProviderToken String?
+
+  // Contingencia da NFC-e: serie propria (disjunta de nfceSeries) e contador
+  // usados quando um terminal nao tem faixa reservada. `nfceContingencyActive`
+  // e a chave "SEFAZ caiu, continue vendendo": toda venda concluida enquanto
+  // estiver ligada emite direto na serie de contingencia.
+  nfceContingencySeries     Int?
+  nfceContingencyNextNumber Int     @default(1)
+  nfceContingencyActive     Boolean @default(false)
 
   // Politica de desconto: teto (em %) que um OPERADOR pode conceder numa venda
   // sem liberacao de gerente. GERENTE e ADMIN nao tem teto.
@@ -953,7 +1035,6 @@ model LoyaltyEntry {
   @@index([saleId])
 }
 
-
 // ---------------------------------------------------------------------------
 // Agendamento de relatorios (F6)
 // ---------------------------------------------------------------------------
@@ -1001,26 +1082,26 @@ model ReportSchedule {
 /// silencio e pior do que agendamento que nao existe — o gestor acha que
 /// recebeu o numero e nao recebeu.
 model ReportDelivery {
-  id         String               @id @default(uuid())
+  id           String               @id @default(uuid())
   /// Fica opcional para a evidencia sobreviver a remocao do agendamento: a
   /// entrega prova que custo, margem e desempenho por operador sairam do
   /// sistema, e apagar o agendamento nao pode apagar essa prova.
-  scheduleId String?
-  schedule   ReportSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  scheduleId   String?
+  schedule     ReportSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   /// Nome do agendamento no momento da entrega — o que resta quando ele some.
   scheduleName String
   report       String
-  runAt      DateTime             @default(now())
-  status     ReportDeliveryStatus
-  channel    ReportChannel
+  runAt        DateTime             @default(now())
+  status       ReportDeliveryStatus
+  channel      ReportChannel
   /// Destinatario MASCARADO no momento do envio.
-  recipient  String
+  recipient    String
   /// Janela que o relatorio cobriu, em rotulo AAAA-MM-DD.
-  periodFrom String
-  periodTo   String
-  rows       Int                  @default(0)
-  bytes      Int                  @default(0)
-  error      String?
+  periodFrom   String
+  periodTo     String
+  rows         Int                  @default(0)
+  bytes        Int                  @default(0)
+  error        String?
 
   @@index([scheduleId, runAt])
 }

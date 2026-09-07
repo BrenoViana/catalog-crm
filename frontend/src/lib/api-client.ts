@@ -637,6 +637,9 @@ export interface Sale {
   total: number;
   note: string | null;
   terminal: string | null;
+  terminalId: string | null;
+  origin: 'ONLINE' | 'CONTINGENCIA';
+  clientRef: string | null;
   createdAt: string;
   completedAt: string | null;
   customer?: Customer | null;
@@ -664,6 +667,7 @@ export interface FiscalDocument {
   series: number;
   number: number;
   status: FiscalStatus;
+  emissionType: 'NORMAL' | 'CONTINGENCIA_OFFLINE';
   environment: string;
   provider: string | null;
   accessKey: string | null;
@@ -673,6 +677,8 @@ export interface FiscalDocument {
   danfeUrl: string | null;
   rejectionReason: string | null;
   attempts: number;
+  emittedInContingencyAt: string | null;
+  contingencyRetryAt: string | null;
   issuedAt: string | null;
   canceledAt: string | null;
   createdAt: string;
@@ -685,6 +691,31 @@ export interface CreateSaleInput {
   discount?: number;
   note?: string;
   terminal?: string;
+  terminalCode?: string;
+  clientRef?: string;
+}
+
+export interface Terminal {
+  id: string;
+  code: string;
+  name: string;
+  active: boolean;
+  contingencySeries: number | null;
+  contingencyRangeStart: number | null;
+  contingencyRangeEnd: number | null;
+  contingencyNextNumber: number | null;
+  lastSeenAt: string | null;
+  lastSyncAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TerminalInput {
+  code: string;
+  name: string;
+  contingencySeries?: number;
+  contingencyRangeStart?: number;
+  contingencyRangeEnd?: number;
 }
 
 export interface SaleReturnItem {
@@ -818,6 +849,25 @@ export const fiscalApi = {
     ApiClient.post<{ picked: number; authorized: number; rejected: number }>(
       '/fiscal/process-pending',
     ),
+  /** Forca um documento para a serie de contingencia (SEFAZ indisponivel). */
+  enterContingency: (id: string) =>
+    ApiClient.post<FiscalDocument>(`/fiscal/documents/${id}/contingency`),
+  /** Reprocessa os documentos parados em contingencia ("a rede voltou"). */
+  processContingency: () =>
+    ApiClient.post<{ picked: number; authorized: number; rejected: number }>(
+      '/fiscal/process-contingency',
+    ),
+};
+
+// ---------------------------------------------------------------- Terminais
+export const terminalsApi = {
+  list: () => ApiClient.get<Terminal[]>('/terminals'),
+  get: (id: string) => ApiClient.get<Terminal>(`/terminals/${id}`),
+  create: (data: TerminalInput) => ApiClient.post<Terminal>('/terminals', data),
+  update: (id: string, data: Partial<TerminalInput>) =>
+    ApiClient.patch<Terminal>(`/terminals/${id}`, data),
+  setActive: (id: string, active: boolean) =>
+    ApiClient.post<Terminal>(`/terminals/${id}/active`, { active }),
 };
 
 // ---------------------------------------------------------------- Caixa
@@ -1000,6 +1050,8 @@ export interface StoreSettings {
   nfceEnvironment: string;
   hasFiscalToken?: boolean;
   hasCsc?: boolean;
+  nfceContingencySeries: number | null;
+  nfceContingencyActive: boolean;
   /** Teto de desconto (%) que um OPERADOR concede sem liberação de gerente. */
   maxDiscountPercentOperator: number;
 }
@@ -1013,6 +1065,12 @@ export const storeSettingsApi = {
   get: () => ApiClient.get<StoreSettings | null>('/store-settings'),
   branding: () => ApiClient.get<StoreBranding>('/store-settings/branding'),
   update: (data: Partial<StoreSettings>) => ApiClient.put<StoreSettings>('/store-settings', data),
+  /** Liga/desliga o modo de contingencia da NFC-e. */
+  setContingency: (active: boolean) =>
+    ApiClient.post<{ nfceContingencyActive: boolean; nfceContingencySeries: number | null }>(
+      '/store-settings/contingency',
+      { active },
+    ),
 };
 
 export interface LicenseInfo {

@@ -325,6 +325,19 @@ export function SalesPage() {
                       {fiscalLabel[detail.data.fiscalDocument.status]}
                     </span>
                   </div>
+                  {detail.data.fiscalDocument.emissionType === 'CONTINGENCIA_OFFLINE' ? (
+                    <p className="muted">
+                      Emitida em contingência
+                      {detail.data.fiscalDocument.emittedInContingencyAt
+                        ? ` em ${new Date(
+                            detail.data.fiscalDocument.emittedInContingencyAt,
+                          ).toLocaleString('pt-BR')}`
+                        : ''}
+                      {detail.data.fiscalDocument.status === 'CONTINGENCIA'
+                        ? ' — aguardando transmissão à SEFAZ.'
+                        : '.'}
+                    </p>
+                  ) : null}
                   {detail.data.fiscalDocument.accessKey ? (
                     <p className="fiscal-key">{detail.data.fiscalDocument.accessKey}</p>
                   ) : null}

@@ -60,6 +60,7 @@ export const MODULE_CATALOG: ModuleDef[] = [
       'customers.manage',
       'users.manage',
       'settings.manage',
+      'terminals.manage',
     ],
   },
   {
@@ -68,7 +69,7 @@ export const MODULE_CATALOG: ModuleDef[] = [
     description:
       'Emissão de NFC-e com provedor real, cancelamento e documentos fiscais.',
     core: false,
-    permissions: ['fiscal.view', 'fiscal.emit', 'fiscal.cancel'],
+    permissions: ['fiscal.view', 'fiscal.emit', 'fiscal.cancel', 'fiscal.contingency'],
   },
   {
     key: 'promocoes',

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { TerminalsModule } from '../terminals/terminals.module';
 import { CashController } from './cash.controller';
 import { CashService } from './cash.service';
 
@@ -8,6 +9,7 @@ import { CashService } from './cash.service';
  * o consolidado e o fechamento discordarem sobre o mesmo dia.
  */
 @Module({
+  imports: [TerminalsModule],
   controllers: [CashController],
   providers: [CashService],
   exports: [CashService],

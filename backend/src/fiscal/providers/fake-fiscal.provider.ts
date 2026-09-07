@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { AppSettingsService } from '../../settings/app-settings.service';
 import type {
   FiscalCancelContext,
   FiscalCancelResult,
@@ -42,8 +43,16 @@ export class FakeFiscalProvider implements FiscalProvider {
   readonly name = 'fake';
   private readonly log = new Logger(FakeFiscalProvider.name);
 
+  constructor(private readonly settings: AppSettingsService) {}
+
   async emit(ctx: FiscalEmitContext): Promise<FiscalEmitResult> {
     const { store, sale, document } = ctx;
+
+    // Gancho deterministico de queda para exercitar a contingencia. So vale no
+    // provedor simulado; um integrador real ignora este ajuste.
+    if (await this.settings.getBoolean('fiscal.simulateOutage')) {
+      throw new Error('SEFAZ inacessivel (simulado).');
+    }
 
     const cnpj = onlyDigits(store.cnpj);
     if (cnpj.length !== 14) {
@@ -72,7 +81,10 @@ export class FakeFiscalProvider implements FiscalProvider {
     const uf = UF_CODE[(store.addressState as string).toUpperCase()];
     const now = new Date();
     const aamm = `${pad(now.getFullYear() % 100, 2)}${pad(now.getMonth() + 1, 2)}`;
-    const tpEmis = '1';
+    // tpEmis=9 (contingencia offline) quando o documento nasceu numa serie de
+    // contingencia; 1 (normal) no caminho comum.
+    const tpEmis =
+      document.emissionType === 'CONTINGENCIA_OFFLINE' ? '9' : '1';
     const cNF = pad(Math.floor(Math.random() * 1e8), 8);
     const base43 =
       uf +

@@ -62,6 +62,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'fiscal.view', group: 'Fiscal', label: 'Ver documentos fiscais', description: 'Consultar a situação das NFC-e emitidas.' },
   { key: 'fiscal.emit', group: 'Fiscal', label: 'Reemitir NFC-e', description: 'Forçar a emissão de documentos pendentes ou rejeitados.' },
   { key: 'fiscal.cancel', group: 'Fiscal', label: 'Cancelar NFC-e', description: 'Cancelar um documento fiscal autorizado.' },
+  { key: 'fiscal.contingency', group: 'Fiscal', label: 'Entrar e sair de contingência', description: 'Ativar o modo de contingência da NFC-e e forçar um documento para a série de contingência quando a SEFAZ está indisponível.' },
 
   // ---------------------------------------------------------------- Financeiro
   { key: 'finance.view', group: 'Financeiro', label: 'Ver financeiro', description: 'Consultar contas a receber e a pagar, fluxo de caixa e resultado do período.' },
@@ -76,6 +77,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'settings.manage', group: 'Gestao', label: 'Configurações da loja', description: 'Editar dados do emitente, identidade visual e políticas.' },
   { key: 'ops.metrics', group: 'Gestao', label: 'Métricas do sistema', description: 'Ver latência, taxa de erro por rota e contadores técnicos do processo.' },
   { key: 'reports.schedule', group: 'Gestao', label: 'Agendar relatórios', description: 'Programar o envio automático de relatórios e ver o histórico de entregas.' },
+  { key: 'terminals.manage', group: 'Gestao', label: 'Gerenciar terminais', description: 'Cadastrar caixas e dispositivos e definir as faixas de numeração fiscal de contingência de cada um.' },
   { key: 'users.manage', group: 'Gestao', label: 'Usuários e permissões', description: 'Criar usuários, definir papéis e ajustar permissões.' },
 ];
 
@@ -109,10 +111,11 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       'inventory.view', 'inventory.adjust',
       'customers.view', 'customers.manage',
       'loyalty.redeem', 'loyalty.manage',
-      'fiscal.view', 'fiscal.emit', 'fiscal.cancel',
+      'fiscal.view', 'fiscal.emit', 'fiscal.cancel', 'fiscal.contingency',
       'finance.view', 'finance.receivables.manage', 'finance.payables.manage',
       'finance.dailyClosing.manage',
       'dashboard.view', 'reports.view', 'reports.export',
+      'terminals.manage',
     ],
   },
   {

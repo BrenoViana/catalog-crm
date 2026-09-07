@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { CurrentUser } from '../common/current-user.decorator';
 import { RequirePermissions } from '../common/permissions.decorator';
 import { RequireModule } from '../license/module.guard';
 import { CancelFiscalDto } from './dto/cancel-fiscal.dto';
@@ -39,5 +40,22 @@ export class FiscalController {
   @Post('process-pending')
   processPending() {
     return this.fiscal.processPending();
+  }
+
+  /** Forca um documento para a serie de contingencia (SEFAZ indisponivel). */
+  @RequirePermissions('fiscal.contingency')
+  @Post('documents/:id/contingency')
+  enterContingency(
+    @Param('id') id: string,
+    @CurrentUser('userId') userId: string,
+  ) {
+    return this.fiscal.enterContingency(id, userId);
+  }
+
+  /** Reprocessa em lote os documentos parados em contingencia ("voltou a rede"). */
+  @RequirePermissions('fiscal.emit')
+  @Post('process-contingency')
+  processContingency() {
+    return this.fiscal.processContingency();
   }
 }

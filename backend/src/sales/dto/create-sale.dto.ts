@@ -10,6 +10,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -100,4 +101,21 @@ export class CreateSaleDto {
   @IsString()
   @MaxLength(40)
   terminal?: string;
+
+  /** Codigo do terminal registrado, quando o dispositivo ja o conhece. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  terminalCode?: string;
+
+  /**
+   * Chave idempotente do dispositivo (fila offline). Um reenvio com o mesmo
+   * `clientRef` devolve a venda ja gravada — nunca cria uma segunda. So vale
+   * junto de um terminal identificado.
+   */
+  @IsOptional()
+  @Matches(/^[A-Za-z0-9_-]{1,64}$/, {
+    message: 'clientRef deve ter de 1 a 64 caracteres: letras, digitos, hifen ou sublinhado.',
+  })
+  clientRef?: string;
 }

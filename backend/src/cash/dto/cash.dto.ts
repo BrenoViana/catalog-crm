@@ -24,6 +24,12 @@ export class OpenCashDto {
   @IsString()
   @MaxLength(40)
   terminal?: string;
+
+  /** Codigo do terminal registrado, quando o dispositivo ja o conhece. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  terminalCode?: string;
 }
 
 export class CloseCashDto {

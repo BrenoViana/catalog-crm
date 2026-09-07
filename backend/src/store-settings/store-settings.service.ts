@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateStoreSettingsDto } from './dto/update-store-settings.dto';
 
@@ -49,6 +49,31 @@ export class StoreSettingsService {
         logoDarkUrl: null,
       }
     );
+  }
+
+  /**
+   * Liga/desliga o modo de contingencia da NFC-e ("a SEFAZ caiu, continue
+   * vendendo"). Escreve APENAS `nfceContingencyActive` — nunca toca no
+   * ambiente. Exige que a contingencia esteja configurada (serie da loja) para
+   * ligar, senao a venda seguinte tentaria alocar numero e falharia no balcao.
+   */
+  async setContingency(active: boolean) {
+    const current = await this.prisma.storeSettings.findFirst();
+    if (!current) {
+      throw new BadRequestException(
+        'Preencha os dados da loja antes de ativar a contingencia.',
+      );
+    }
+    if (active && current.nfceContingencySeries == null) {
+      throw new BadRequestException(
+        'Defina a serie de contingencia da NFC-e antes de ativar o modo de contingencia.',
+      );
+    }
+    return this.prisma.storeSettings.update({
+      where: { id: current.id },
+      data: { nfceContingencyActive: active },
+      select: { nfceContingencyActive: true, nfceContingencySeries: true },
+    });
   }
 
   async update(dto: UpdateStoreSettingsDto) {
