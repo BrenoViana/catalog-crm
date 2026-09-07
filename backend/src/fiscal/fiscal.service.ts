@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -28,6 +29,13 @@ const EMITTABLE: FiscalStatus[] = ['PENDENTE', 'REJEITADA'];
 
 /** Teto do backoff entre tentativas de transmitir uma contingencia. */
 const MAX_CONTINGENCY_BACKOFF_MS = 30 * 60_000;
+
+/**
+ * Tempo sem `lastAttemptAt` novo a partir do qual um documento em PROCESSANDO e
+ * considerado preso (o processo caiu no meio da emissao). So depois disso o
+ * "entrar em contingencia" manual pode assumi-lo.
+ */
+const STUCK_PROCESSING_MS = 2 * 60_000;
 
 @Injectable()
 export class FiscalService {
@@ -306,12 +314,22 @@ export class FiscalService {
       this.metrics.increment('fiscal.contingencia');
       return updated;
     } catch (err) {
-      if (err instanceof RangeExhaustedError) {
-        this.metrics.increment('fiscal.contingencia.faixaEsgotada');
-        this.log.error(err.message);
-        return null;
-      }
-      throw err;
+      // QUALQUER falha de alocacao (faixa esgotada, colisao no
+      // @@unique([model, series, number]), erro de banco) e "nao ha para onde
+      // ir". Nunca repropagar: se subisse ate o try/catch geral de emit(), o
+      // documento voltaria a PENDENTE sem motivo e ficaria invisivel a todo
+      // alerta (SEC-090). O chamador grava REJEITADA com motivo.
+      this.metrics.increment(
+        err instanceof RangeExhaustedError
+          ? 'fiscal.contingencia.faixaEsgotada'
+          : 'fiscal.contingencia.falhou',
+      );
+      this.log.error(
+        `Nao foi possivel alocar numero de contingencia para o doc ${document.id}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+      return null;
     }
   }
 
@@ -322,7 +340,7 @@ export class FiscalService {
   async enterContingency(documentId: string, userId: string) {
     const pre = await this.prisma.fiscalDocument.findUnique({
       where: { id: documentId },
-      select: { status: true, emissionType: true },
+      select: { status: true, emissionType: true, lastAttemptAt: true },
     });
     if (!pre) throw new NotFoundException('Documento fiscal não encontrado.');
     // Ja esta em contingencia: nao realoca numero, so devolve como esta.
@@ -333,11 +351,24 @@ export class FiscalService {
       return this.findOne(documentId);
     }
 
+    // Um documento em PROCESSANDO pode ter uma emissao NORMAL em voo (o
+    // provedor ainda vai responder). Roubar nesse instante queima um numero de
+    // contingencia e deixa a chave divergir da serie quando o `settle` normal
+    // chegar (SEC-094). So assume PROCESSANDO se ele estiver genuinamente
+    // preso — sem tentativa ha mais de STUCK_MS.
+    const claimStatuses: FiscalStatus[] = [...EMITTABLE];
+    const stuck =
+      pre.lastAttemptAt != null &&
+      Date.now() - pre.lastAttemptAt.getTime() > STUCK_PROCESSING_MS;
+    if (pre.status === 'PROCESSANDO' && stuck) claimStatuses.push('PROCESSANDO');
+    else if (pre.status === 'PROCESSANDO') {
+      throw new ConflictException(
+        'A NFC-e está em processamento. Aguarde a resposta do provedor antes de forçar a contingência.',
+      );
+    }
+
     const claimed = await this.prisma.fiscalDocument.updateMany({
-      where: {
-        id: documentId,
-        status: { in: [...EMITTABLE, 'PROCESSANDO'] },
-      },
+      where: { id: documentId, status: { in: claimStatuses } },
       data: { status: 'PROCESSANDO', lastAttemptAt: new Date() },
     });
     if (claimed.count !== 1) return this.findOne(documentId);
@@ -348,11 +379,15 @@ export class FiscalService {
     });
     const moved = await this.tryEnterContingency(document);
     if (!moved) {
-      // Nao ha contingencia configurada: devolve o documento a PENDENTE em vez
-      // de deixa-lo preso em PROCESSANDO.
+      // Nao ha contingencia configurada, ou a alocacao falhou: nunca deixar o
+      // documento preso em PROCESSANDO nem mudo em PENDENTE (SEC-090).
       await this.prisma.fiscalDocument.update({
         where: { id: documentId },
-        data: { status: 'PENDENTE' },
+        data: {
+          status: 'PENDENTE',
+          rejectionReason:
+            'Não foi possível entrar em contingência: verifique a série de contingência da loja ou a faixa do terminal.',
+        },
       });
       return this.findOne(documentId);
     }
@@ -481,7 +516,7 @@ export class FiscalService {
     return new Date(Date.now() + delay);
   }
 
-  private settle(
+  private async settle(
     documentId: string,
     result: FiscalEmitResult,
     opts: { fromContingency?: boolean } = {},
@@ -503,6 +538,26 @@ export class FiscalService {
     // Documento reconciliado da contingencia: some da fila do runner. A serie,
     // o numero e o emissionType permanecem — a chave offline ja os encravou.
     if (opts.fromContingency) data.contingencyRetryAt = null;
-    return this.prisma.fiscalDocument.update({ where: { id: documentId }, data });
+
+    // Gravacao CONDICIONAL: entre a chamada ao provedor e este ponto, um
+    // "entrar em contingencia" manual pode ter assumido o documento e trocado
+    // serie/numero/emissionType. Escrever cegamente aqui gravaria a chave da
+    // emissao NORMAL sobre a serie de contingencia — chave divergente e numero
+    // de contingencia queimado (SEC-094). So conclui quem ainda e do mesmo
+    // fluxo: PROCESSANDO com o emissionType que este caminho espera.
+    const claimed = await this.prisma.fiscalDocument.updateMany({
+      where: {
+        id: documentId,
+        status: 'PROCESSANDO',
+        emissionType: opts.fromContingency ? 'CONTINGENCIA_OFFLINE' : 'NORMAL',
+      },
+      data,
+    });
+    if (claimed.count !== 1) {
+      this.log.warn(
+        `settle do doc ${documentId} ignorado: outro fluxo assumiu o documento.`,
+      );
+    }
+    return this.findOne(documentId);
   }
 }

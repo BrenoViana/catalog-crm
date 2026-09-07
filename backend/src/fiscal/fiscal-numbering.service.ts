@@ -54,8 +54,17 @@ export class FiscalNumberingService {
     // sem wrap, sem cair na serie da loja, para o terminal A nunca consumir o
     // bloco do terminal B.
     if (terminal?.contingencySeries != null) {
-      const next =
+      const floor =
         terminal.contingencyNextNumber ?? terminal.contingencyRangeStart ?? 1;
+      // NUNCA emitir abaixo do que ja existe na serie: se a serie foi trocada e
+      // depois revertida, o contador rebobina sobre numeros ja gravados e o
+      // insert bate no @@unique([model, series, number]) — a nota ficaria presa
+      // em PENDENTE sem motivo (SEC-090). O advisory lock la em cima serializa
+      // esta leitura contra outra alocacao concorrente.
+      const next = Math.max(
+        floor,
+        (await this.maxNumberInSeries(tx, terminal.contingencySeries)) + 1,
+      );
       if (
         terminal.contingencyRangeEnd != null &&
         next > terminal.contingencyRangeEnd
@@ -82,12 +91,24 @@ export class FiscalNumberingService {
         'Contingência da NFC-e não configurada: defina a série de contingência da loja ou uma faixa no terminal.',
       );
     }
-    const number = store.nfceContingencyNextNumber;
+    const number = Math.max(
+      store.nfceContingencyNextNumber,
+      (await this.maxNumberInSeries(tx, store.nfceContingencySeries)) + 1,
+    );
     await tx.storeSettings.update({
       where: { id: store.id },
       data: { nfceContingencyNextNumber: number + 1 },
     });
     return { series: store.nfceContingencySeries, number };
+  }
+
+  /** Maior numero ja gravado no par (modelo 65, serie) — 0 se a serie e nova. */
+  private async maxNumberInSeries(tx: Tx, series: number): Promise<number> {
+    const agg = await tx.fiscalDocument.aggregate({
+      _max: { number: true },
+      where: { model: 65, series },
+    });
+    return agg._max.number ?? 0;
   }
 
   /**

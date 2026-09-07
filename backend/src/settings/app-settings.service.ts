@@ -118,6 +118,20 @@ export class AppSettingsService implements OnModuleInit {
     if (!def) throw new NotFoundException(`Configuração "${key}" não existe.`);
 
     const parsed = this.coerce(def, value);
+
+    // `fiscal.simulateOutage` derruba TODA a emissão fiscal da loja. É gancho de
+    // teste: falha fechada fora de desenvolvimento, como ALLOW_FAKE_PAYMENT_GATEWAY
+    // (SEC-095).
+    if (
+      key === 'fiscal.simulateOutage' &&
+      parsed === true &&
+      process.env.NODE_ENV !== 'development'
+    ) {
+      throw new BadRequestException(
+        'A simulação de queda da SEFAZ só pode ser ligada em ambiente de desenvolvimento.',
+      );
+    }
+
     await this.prisma.appSetting.update({ where: { key }, data: { value: parsed as never } });
     this.cache = null;
     return { key, value: parsed };

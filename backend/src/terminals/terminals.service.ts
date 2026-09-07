@@ -19,6 +19,12 @@ type Tx = Prisma.TransactionClient;
 /** Quantos nomes de terminal livres o boot tenta adotar de uma vez. */
 const BACKFILL_LIMIT = 200;
 
+/** Mesmo formato do cadastro manual — o auto-provisionamento nao afrouxa isso. */
+const TERMINAL_CODE_RE = /^[A-Z0-9][A-Z0-9-]{1,39}$/;
+
+/** Teto de terminais para o caminho de venda nao virar insert ilimitado. */
+const MAX_AUTO_TERMINALS = 500;
+
 /** Transforma um nome livre num codigo de terminal valido. */
 function slugCode(name: string): string {
   const base = name
@@ -148,17 +154,24 @@ export class TerminalsService implements OnModuleInit {
 
   async create(dto: CreateTerminalDto, userId: string) {
     const code = dto.code.trim().toUpperCase();
-    const taken = await this.prisma.terminal.findUnique({
-      where: { code },
-      select: { id: true },
-    });
-    if (taken) {
-      throw new BadRequestException(`Já existe um terminal com o código "${code}".`);
-    }
     const contingency = await this.resolveContingencyShape(dto, null);
-    const terminal = await this.prisma.terminal.create({
-      data: { code, name: dto.name.trim(), ...contingency },
-    });
+    let terminal;
+    try {
+      terminal = await this.prisma.terminal.create({
+        data: { code, name: dto.name.trim(), ...contingency },
+      });
+    } catch (err) {
+      // Corrida no unique de `code`: transforma o 500 do check-then-act num 400.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          `Já existe um terminal com o código "${code}".`,
+        );
+      }
+      throw err;
+    }
     await this.record('terminals.create', userId, terminal.id, {
       codigo: code,
       serieContingencia: contingency.contingencySeries ?? null,
@@ -282,11 +295,15 @@ export class TerminalsService implements OnModuleInit {
     }
 
     const store = await this.prisma.storeSettings.findFirst({
-      select: { nfceSeries: true },
+      select: { nfceSeries: true, nfceContingencySeries: true },
     });
-    if (store && store.nfceSeries === contingencySeries) {
+    if (
+      store &&
+      (store.nfceSeries === contingencySeries ||
+        store.nfceContingencySeries === contingencySeries)
+    ) {
       throw new BadRequestException(
-        'A série de contingência precisa ser diferente da série normal da NFC-e.',
+        'A série de contingência do terminal precisa ser diferente da série normal e da série de contingência da loja.',
       );
     }
 
@@ -325,13 +342,22 @@ export class TerminalsService implements OnModuleInit {
    * Resolve um terminal a partir do que o cliente mandou (codigo ou nome livre)
    * e devolve o id + o rotulo a gravar em `Sale.terminal` / `CashSession.terminal`.
    *
-   * Casa por codigo exato; senao por nome (case-insensitive). Se nao existir e
-   * houver um nome, cria um terminal ativo na hora — um PDV que nunca foi
-   * cadastrado ainda ganha identidade estavel. Toca `lastSeenAt`.
+   * Casa por codigo exato; senao por nome (case-insensitive).
+   *
+   * - Terminal inativo recusa a operacao (400): "inativar o caixa 3" e um
+   *   controle operacional real — nao pode ser fachada (SEC-093).
+   * - So cria terminal na hora se o codigo casar com o mesmo formato estrito do
+   *   cadastro e houver folga no teto de auto-criacao; a criacao vira linha na
+   *   trilha com o operador. Codigo/nome que nao servem para virar cadastro
+   *   passam batido: a venda segue com `terminalId` nulo e o rotulo digitado.
    */
   async resolveForWrite(
     tx: Tx,
-    input: { terminalCode?: string | null; terminalName?: string | null },
+    input: {
+      terminalCode?: string | null;
+      terminalName?: string | null;
+      actorId?: string | null;
+    },
   ): Promise<{ terminalId: string | null; terminalLabel: string | null }> {
     const code = input.terminalCode?.trim().toUpperCase() || null;
     const name = input.terminalName?.trim() || null;
@@ -345,21 +371,77 @@ export class TerminalsService implements OnModuleInit {
         where: { name: { equals: name, mode: 'insensitive' } },
       });
     }
-    if (!terminal) {
-      const newCode = code ?? slugCode(name as string);
-      const clash = await tx.terminal.findUnique({ where: { code: newCode } });
-      terminal = clash
-        ? clash
-        : await tx.terminal.create({
-            data: { code: newCode, name: name ?? newCode },
-          });
+
+    if (terminal) {
+      if (!terminal.active) {
+        throw new BadRequestException(
+          `O terminal "${terminal.code}" está inativo. Reative-o em Configurações para operar por ele.`,
+        );
+      }
+      await tx.terminal.update({
+        where: { id: terminal.id },
+        data: { lastSeenAt: new Date() },
+      });
+      return { terminalId: terminal.id, terminalLabel: terminal.name };
     }
 
-    await tx.terminal.update({
-      where: { id: terminal.id },
-      data: { lastSeenAt: new Date() },
-    });
-    return { terminalId: terminal.id, terminalLabel: terminal.name };
+    // Nao existe por codigo nem por nome. So vira cadastro se o codigo for
+    // aproveitavel.
+    const newCode = code ?? slugCode(name as string);
+    if (!TERMINAL_CODE_RE.test(newCode)) {
+      return { terminalId: null, terminalLabel: name };
+    }
+    // Pode existir com este codigo mesmo sem casar por nome (backfill do boot,
+    // corrida). Reaproveita — sem esta checagem o create bate no unique.
+    const byCode = await tx.terminal.findUnique({ where: { code: newCode } });
+    if (byCode) {
+      if (!byCode.active) {
+        throw new BadRequestException(
+          `O terminal "${byCode.code}" está inativo. Reative-o em Configurações para operar por ele.`,
+        );
+      }
+      await tx.terminal.update({
+        where: { id: byCode.id },
+        data: { lastSeenAt: new Date() },
+      });
+      return { terminalId: byCode.id, terminalLabel: byCode.name };
+    }
+    const total = await tx.terminal.count();
+    if (total >= MAX_AUTO_TERMINALS) {
+      this.log.warn(
+        `Teto de ${MAX_AUTO_TERMINALS} terminais atingido — "${newCode}" nao foi criado automaticamente.`,
+      );
+      return { terminalId: null, terminalLabel: name };
+    }
+    let created;
+    try {
+      created = await tx.terminal.create({
+        data: { code: newCode, name: name ?? newCode, lastSeenAt: new Date() },
+      });
+    } catch (err) {
+      // Corrida: outro fluxo criou o mesmo codigo entre o findUnique e aqui.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const raced = await tx.terminal.findUnique({ where: { code: newCode } });
+        if (raced?.active) {
+          return { terminalId: raced.id, terminalLabel: raced.name };
+        }
+      }
+      // Nao derruba a venda por causa do cadastro de terminal: segue sem vinculo.
+      return { terminalId: null, terminalLabel: name };
+    }
+    if (input.actorId) {
+      await this.authorization.record({
+        action: 'terminals.autoCreate',
+        actorId: input.actorId,
+        targetType: 'Terminal',
+        targetId: created.id,
+        detail: { codigo: newCode, origem: code ? 'terminalCode' : 'nome livre' },
+      });
+    }
+    return { terminalId: created.id, terminalLabel: created.name };
   }
 
   // ----------------------------------------------------------------- Auditoria

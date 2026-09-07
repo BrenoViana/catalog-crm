@@ -85,6 +85,7 @@ export class OpsService {
       unsettled,
       overdue,
       contingencyDocs,
+      stuckFiscalDocs,
     ] = await Promise.all([
         this.prisma.cashSession.findMany({
           where: { status: 'ABERTA', openedAt: { lt: shiftCutoff } },
@@ -146,6 +147,18 @@ export class OpsService {
           _count: true,
           _min: { emittedInContingencyAt: true },
           where: { status: 'CONTINGENCIA' },
+        }),
+        // NFC-e que nao entrou nem em contingencia: parada em REJEITADA ou
+        // PROCESSANDO numa venda ja concluida. E o estado em que a contingencia
+        // NAO conseguiu ajudar (colisao de numero, contingencia nao
+        // configurada) — sem este alerta o documento fica so no historico
+        // fiscal, que ninguem abre todo dia (SEC-090).
+        this.prisma.fiscalDocument.count({
+          where: {
+            status: { in: ['REJEITADA', 'PROCESSANDO'] },
+            createdAt: { gte: last30 },
+            sale: { status: 'CONCLUIDA' },
+          },
         }),
       ]);
 
@@ -294,6 +307,21 @@ export class OpsService {
           data: { documentos: contingencyDocs._count, horas: hours },
         });
       }
+    }
+
+    // NFC-e de venda concluída parada em REJEITADA/PROCESSANDO — a contingência
+    // não resolveu, e o documento não aparece em nenhum outro alerta.
+    if (stuckFiscalDocs > 0) {
+      alerts.push({
+        code: 'fiscal.emissionStuck',
+        level: 'alto',
+        title: `${stuckFiscalDocs} NFC-e sem emitir`,
+        detail:
+          `${stuckFiscalDocs} documento(s) fiscal(is) de venda concluída parado(s) em ` +
+          'rejeição ou processamento nos últimos 30 dias. Mercadoria saiu; a nota não.',
+        link: '/fiscal',
+        data: { documentos: stuckFiscalDocs },
+      });
     }
 
     const weight: Record<AlertLevel, number> = { alto: 0, medio: 1, baixo: 2 };

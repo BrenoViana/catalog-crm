@@ -79,6 +79,25 @@ export class StoreSettingsService {
   async update(dto: UpdateStoreSettingsDto) {
     const data = this.normalize(dto);
     const current = await this.prisma.storeSettings.findFirst();
+
+    if (dto.nfceContingencySeries != null) {
+      const normalSeries = current?.nfceSeries ?? 1;
+      if (dto.nfceContingencySeries === normalSeries) {
+        throw new BadRequestException(
+          'A série de contingência da loja precisa ser diferente da série normal da NFC-e.',
+        );
+      }
+      const clash = await this.prisma.terminal.findFirst({
+        where: { contingencySeries: dto.nfceContingencySeries },
+        select: { code: true },
+      });
+      if (clash) {
+        throw new BadRequestException(
+          `A série ${dto.nfceContingencySeries} já é a faixa de contingência do terminal "${clash.code}".`,
+        );
+      }
+    }
+
     if (!current) {
       return this.prisma.storeSettings.create({ data: { ...EMPTY, ...data } });
     }

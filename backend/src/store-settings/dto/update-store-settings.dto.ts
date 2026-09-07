@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -61,6 +62,18 @@ export class UpdateStoreSettingsDto {
   @IsOptional() @IsString() nfceCsc?: string;
   @IsOptional() @IsString() fiscalProvider?: string;
   @IsOptional() @IsString() fiscalProviderToken?: string;
+
+  /**
+   * Série de contingência da NFC-e da loja (0–999, disjunta da série normal).
+   * É a fonte de numeração para terminais sem faixa própria; sem ela, o modo de
+   * contingência da loja não liga. Validada no service.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  nfceContingencySeries?: number;
 
   @IsOptional()
   @Type(() => Number)

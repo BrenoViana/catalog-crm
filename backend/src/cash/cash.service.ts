@@ -151,7 +151,11 @@ export class CashService {
 
       const { terminalId, terminalLabel } = await this.terminals.resolveForWrite(
         tx,
-        { terminalCode: dto.terminalCode, terminalName: dto.terminal },
+        {
+          terminalCode: dto.terminalCode,
+          terminalName: dto.terminal,
+          actorId: operatorId,
+        },
       );
 
       return tx.cashSession.create({

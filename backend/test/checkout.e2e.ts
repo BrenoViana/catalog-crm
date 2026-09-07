@@ -1474,9 +1474,14 @@ async function main() {
     // sem renumerar. `clientRef` torna o reenvio idempotente.
     const dbC = app.get(PrismaService);
     // As vendas de contingencia sao canceladas via API (nao da para hard-delete:
-    // ha pagamento, movimento e documento fiscal pendurados). Aqui so soltamos
-    // os terminais de teste — o FK Sale.terminalId e ON DELETE SET NULL.
-    const dropE2eTerminals = async () => {
+    // ha pagamento, movimento e documento fiscal pendurados). Aqui soltamos os
+    // terminais de teste (FK Sale.terminalId e ON DELETE SET NULL) e apagamos os
+    // documentos das series de contingencia do teste — senao a checagem
+    // anti-colisao (SEC-090) alocaria o proximo numero livre, nao o 1.
+    const dropE2eContingencyState = async () => {
+      await dbC.fiscalDocument
+        .deleteMany({ where: { series: { in: [990, 991] } } })
+        .catch(() => undefined);
       await dbC.terminal
         .deleteMany({
           where: {
@@ -1488,7 +1493,7 @@ async function main() {
         })
         .catch(() => undefined);
     };
-    await dropE2eTerminals();
+    await dropE2eContingencyState();
 
     const contProduct = await api('POST', '/products', {
       sku: `E2E-CONT-${Date.now()}`,
@@ -1640,6 +1645,66 @@ async function main() {
       assert.equal(a.level, 'alto');
     });
 
+    // SEC-090: rebobinar o contador do terminal (cenario "trocou a serie e
+    // voltou atras") NAO pode fazer a alocacao repetir um numero ja gravado —
+    // a checagem MAX(number) na serie tem de vencer, e nenhum documento pode
+    // terminar em PENDENTE sem motivo.
+    const term990 = (await api('GET', '/terminals')).body.find(
+      (t: any) => t.code === 'CAIXA-E2E',
+    );
+    await dbC.terminal.update({
+      where: { id: term990.id },
+      data: { contingencyNextNumber: 1 },
+    });
+    const rewindSale = await api('POST', '/sales', {
+      items: [{ productId: contProductId, quantity: 1 }],
+      payments: [{ method: 'DINHEIRO', amount: 10 }],
+      terminalCode: 'CAIXA-E2E',
+      clientRef: 'e2e-cont-rewind',
+    });
+    const rewindDoc = await waitFiscal(rewindSale.body.id);
+    check('contador rebobinado nao repete numero ja gravado (SEC-090)', () => {
+      assert.equal(rewindDoc.status, 'CONTINGENCIA');
+      assert.equal(rewindDoc.number, 3, 'realocou sobre um numero ja usado');
+      assert.equal(
+        rewindDoc.rejectionReason,
+        null,
+        'documento em contingencia nao deveria carregar motivo de rejeicao',
+      );
+    });
+    // A colisao com o @@unique([model, series, number]) nao pode deixar o
+    // documento da venda parado em PENDENTE sem motivo: ou entra em
+    // CONTINGENCIA (aqui), ou vira REJEITADA com texto. `rewindDoc` acima ja
+    // prova o primeiro caminho; aqui conferimos que o proprio documento nunca
+    // ficou no limbo.
+    check('a venda com contador rebobinado nao ficou muda em PENDENTE (SEC-090)', () => {
+      assert.notEqual(rewindDoc.status, 'PENDENTE');
+    });
+
+    // SEC-093: terminal inativo nao registra venda — o "inativar" nao e fachada.
+    await api('POST', `/terminals/${term990.id}/active`, { active: false });
+    const inactiveSale = await api('POST', '/sales', {
+      items: [{ productId: contProductId, quantity: 1 }],
+      payments: [{ method: 'DINHEIRO', amount: 10 }],
+      terminalCode: 'CAIXA-E2E',
+    });
+    check('venda por terminal inativo -> 400 (SEC-093)', () => {
+      assert.equal(inactiveSale.status, 400);
+    });
+    await api('POST', `/terminals/${term990.id}/active`, { active: true });
+
+    // SEC-091: faixa de contingencia do terminal na mesma serie normal -> 400.
+    const dupSeries = await api('POST', '/terminals', {
+      code: 'CAIXA-DUP',
+      name: 'Caixa E2E serie duplicada',
+      contingencySeries: 1,
+      contingencyRangeStart: 1,
+      contingencyRangeEnd: 9,
+    });
+    check('serie de contingencia igual a normal -> 400 (SEC-091)', () => {
+      assert.equal(dupSeries.status, 400);
+    });
+
     // Limpeza da secao de contingencia.
     await api('PUT', '/app-settings', {
       settings: [
@@ -1647,13 +1712,16 @@ async function main() {
         { key: 'fiscal.maxEmitAttempts', value: 5 },
       ],
     });
+    await api('POST', `/sales/${rewindSale.body.id}/cancel`, {
+      reason: 'limpeza do e2e de contingencia (rewind)',
+    }).catch(() => undefined);
     await api('POST', `/sales/${contSale.body.id}/cancel`, {
       reason: 'limpeza do e2e de contingencia',
     });
     await api('POST', `/sales/${staleSale.body.id}/cancel`, {
       reason: 'limpeza do e2e de contingencia prolongada',
     });
-    await dropE2eTerminals();
+    await dropE2eContingencyState();
     if (contProductId) {
       await api('DELETE', `/products/${contProductId}`).catch(() => undefined);
     }

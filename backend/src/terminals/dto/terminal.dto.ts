@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -27,20 +28,23 @@ export class CreateTerminalDto {
   @MaxLength(60)
   name: string;
 
-  /** Serie de NFC-e de contingencia reservada a este terminal. */
+  /** Serie de NFC-e de contingencia reservada a este terminal (0–999). */
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(999)
   contingencySeries?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(999_999_999)
   contingencyRangeStart?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(999_999_999)
   contingencyRangeEnd?: number;
 }
 

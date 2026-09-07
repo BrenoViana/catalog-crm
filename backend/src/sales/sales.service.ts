@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -74,7 +75,34 @@ export class SalesService {
       include: {
         customer: true,
         operator: { select: { id: true, name: true } },
-        items: { include: { product: true } },
+        // `unitCost` (item) e `product.cost` sao dado de gestao — saem por
+        // reports.view/export, auditados, nao por sales.view (SEC-097). Select
+        // explicito para nao vazar pela rota de venda.
+        items: {
+          select: {
+            id: true,
+            saleId: true,
+            productId: true,
+            description: true,
+            quantity: true,
+            unitPrice: true,
+            discount: true,
+            promoDiscount: true,
+            promotionId: true,
+            promotionName: true,
+            total: true,
+            product: {
+              select: {
+                id: true,
+                sku: true,
+                name: true,
+                unit: true,
+                pricingMode: true,
+                categoryId: true,
+              },
+            },
+          },
+        },
         payments: true,
         fiscalDocument: true,
         returns: {
@@ -98,7 +126,11 @@ export class SalesService {
     // a checagem de idempotencia abaixo precisa do terminalId.
     const { terminalId, terminalLabel } = await this.terminals.resolveForWrite(
       this.prisma,
-      { terminalCode: dto.terminalCode, terminalName: dto.terminal },
+      {
+        terminalCode: dto.terminalCode,
+        terminalName: dto.terminal,
+        actorId: operatorId,
+      },
     );
 
     // `clientRef` so faz sentido com um terminal identificado: sem isso, a
@@ -110,13 +142,23 @@ export class SalesService {
       );
     }
     // Reenvio da fila offline: se a venda ja existe para este par
-    // (terminal, clientRef), devolve a que ja foi gravada.
+    // (terminal, clientRef), devolve a que ja foi gravada — mas so para o
+    // proprio operador. `terminalId` e `clientRef` vem do corpo; sem a checagem
+    // de posse, quem tem so `sales.create` leria a venda de outro operador
+    // (com QR de pagamento) por uma rota de escrita (SEC-092).
     if (dto.clientRef && terminalId) {
       const existing = await this.prisma.sale.findUnique({
         where: { terminalId_clientRef: { terminalId, clientRef: dto.clientRef } },
-        select: { id: true },
+        select: { id: true, operatorId: true },
       });
-      if (existing) return this.getForCheckout(existing.id);
+      if (existing) {
+        if (existing.operatorId !== operatorId) {
+          throw new ConflictException(
+            'Esta chave de idempotência já foi usada neste terminal.',
+          );
+        }
+        return this.getForCheckout(existing.id);
+      }
     }
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
@@ -620,9 +662,16 @@ export class SalesService {
           where: {
             terminalId_clientRef: { terminalId, clientRef: dto.clientRef },
           },
-          select: { id: true },
+          select: { id: true, operatorId: true },
         });
-        if (other) return this.getForCheckout(other.id);
+        if (other) {
+          if (other.operatorId !== operatorId) {
+            throw new ConflictException(
+              'Esta chave de idempotência já foi usada neste terminal.',
+            );
+          }
+          return this.getForCheckout(other.id);
+        }
       }
       throw err;
     }
@@ -718,9 +767,13 @@ export class SalesService {
    * reenvios simultaneos.
    */
   private async getForCheckout(saleId: string) {
+    // Sem `payments` no include: no reenvio o pagamento vai MASCARADO
+    // (`listForSale`), como em GET /payments/sale/:id. `listForCheckout`, que
+    // devolve QR e externalId em claro, e so para o momento do fechamento na
+    // requisicao que criou a venda (SEC-092).
     const sale = await this.prisma.sale.findUniqueOrThrow({
       where: { id: saleId },
-      include: { items: true, payments: true },
+      include: { items: true },
     });
     const accrued = await this.prisma.loyaltyEntry.aggregate({
       where: { saleId, type: 'ACUMULO' },
@@ -728,7 +781,7 @@ export class SalesService {
     });
     return {
       ...sale,
-      payments: await this.payments.listForCheckout(saleId),
+      payments: await this.payments.listForSale(saleId),
       loyaltyEarned: D(accrued._sum.amount ?? 0),
     };
   }
