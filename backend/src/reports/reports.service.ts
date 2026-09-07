@@ -282,12 +282,55 @@ export class ReportsService {
 
   // ---------------------------------------------------------------- Produtos
   /**
-   * Curva ABC por receita, com margem estimada.
+   * Custo realizado por produto na janela, direto do snapshot do item da venda.
    *
-   * A margem usa o custo ATUAL do produto (`Product.cost`) porque a venda nao
-   * guarda snapshot de custo. Numa reprecificacao de fornecedor a margem
-   * historica se desloca: a resposta marca `margemEstimada: true` para a tela
-   * dizer isso ao lojista em vez de fingir precisao contabil.
+   * `SaleItem.unitCost` guarda o custo que valia no dia da venda. A soma tem de
+   * ser `unitCost * quantity` linha a linha — nao da para fazer com `groupBy`,
+   * que so agrega colunas existentes. Vendas anteriores a essa coluna (e itens
+   * de produto sem custo cadastrado) entram como `semCusto`: a linha fica sem
+   * margem e a cobertura vai na resposta, em vez de a conta silenciosamente
+   * tratar custo desconhecido como zero e inflar a margem.
+   */
+  private async realizedCost(range: ResolvedRange, productIds: string[]) {
+    if (!productIds.length) {
+      return new Map<string, { custo: Prisma.Decimal | null; comCusto: number; semCusto: number }>();
+    }
+    const rows = await this.prisma.$queryRaw<
+      { productId: string; custo: Prisma.Decimal | null; comCusto: bigint; semCusto: bigint }[]
+    >`
+      SELECT i."productId"                                                AS "productId",
+             SUM(i."unitCost" * i."quantity")                             AS "custo",
+             COUNT(*) FILTER (WHERE i."unitCost" IS NOT NULL)             AS "comCusto",
+             COUNT(*) FILTER (WHERE i."unitCost" IS NULL)                 AS "semCusto"
+        FROM "SaleItem" i
+        JOIN "Sale" s ON s."id" = i."saleId"
+       WHERE s."status" = 'CONCLUIDA'
+         AND s."completedAt" >= ${range.from}
+         AND s."completedAt" < ${range.to}
+         AND i."productId" IN (${Prisma.join(productIds)})
+       GROUP BY i."productId"
+    `;
+    return new Map(
+      rows.map((r) => [
+        r.productId,
+        {
+          custo: r.custo === null ? null : D(r.custo),
+          comCusto: Number(r.comCusto),
+          semCusto: Number(r.semCusto),
+        },
+      ]),
+    );
+  }
+
+  /**
+   * Curva ABC por receita, com margem realizada.
+   *
+   * A margem sai do custo GRAVADO no item da venda (`SaleItem.unitCost`), nao
+   * do custo atual do produto: reprecificacao de fornecedor deixou de mexer
+   * retroativamente na margem de um periodo ja fechado. Onde o snapshot nao
+   * existe — venda anterior a essa coluna, ou produto sem custo cadastrado — a
+   * linha sai sem margem e a resposta diz quantos itens ficaram descobertos
+   * (`cobertura`), em vez de fingir precisao contabil.
    */
   async products(query: ReportQueryDto) {
     const range = resolveRange(query);
@@ -304,26 +347,36 @@ export class ReportsService {
     if (truncado) grouped.length = MAX_ROWS;
 
     const ids = grouped.map((g) => g.productId);
-    const products = ids.length
-      ? await this.prisma.product.findMany({
-          where: { id: { in: ids } },
-          select: {
-            id: true,
-            sku: true,
-            name: true,
-            cost: true,
-            category: { select: { name: true } },
-          },
-        })
-      : [];
+    const [products, custos] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          sku: true,
+          name: true,
+          category: { select: { name: true } },
+        },
+      }),
+      this.realizedCost(range, ids),
+    ]);
     const byId = new Map(products.map((p) => [p.id, p]));
+
+    let itensComCusto = 0;
+    let itensSemCusto = 0;
 
     const rows = grouped
       .map((g) => {
         const p = byId.get(g.productId);
         const quantidade = Number(g._sum.quantity ?? 0);
         const receita = n(g._sum.total);
-        const custo = p?.cost ? D(p.cost).times(quantidade).toNumber() : null;
+        const c = custos.get(g.productId);
+        itensComCusto += c?.comCusto ?? 0;
+        itensSemCusto += c?.semCusto ?? 0;
+        // Custo parcial nao vira margem: se metade das linhas do produto nao
+        // tem snapshot, somar so a outra metade produziria uma margem alta
+        // demais que ninguem consegue distinguir de uma margem boa.
+        const custo =
+          c && c.custo !== null && c.semCusto === 0 ? c.custo.toNumber() : null;
         const margem = custo !== null ? receita - custo : null;
         return {
           productId: g.productId,
@@ -371,7 +424,19 @@ export class ReportsService {
       total,
       truncado,
       limite: MAX_ROWS,
-      margemEstimada: true,
+      // A margem deixou de ser estimativa sobre o custo de hoje: sai do custo
+      // gravado na venda. Continua havendo item sem snapshot (venda antiga,
+      // produto sem custo), e a cobertura diz exatamente quanto — a tela usa
+      // isso para avisar, em vez de o lojista decidir preco sobre um numero
+      // cuja procedencia ele nao ve.
+      margemEstimada: itensSemCusto > 0,
+      cobertura: {
+        itensComCusto,
+        itensSemCusto,
+        percentual: itensComCusto + itensSemCusto
+          ? itensComCusto / (itensComCusto + itensSemCusto)
+          : null,
+      },
       produtosSemCusto: rows.length - comCusto.length,
       margemTotal: comCusto.reduce((acc, r) => acc + (r.margem ?? 0), 0),
       resumo,
@@ -434,6 +499,7 @@ export class ReportsService {
       total: detalhe.total,
       truncado: detalhe.truncado,
       margemEstimada: detalhe.margemEstimada,
+      cobertura: detalhe.cobertura,
       produtosSemCusto: detalhe.produtosSemCusto,
       linhas,
     };

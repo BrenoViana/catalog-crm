@@ -26,6 +26,10 @@ import { PrismaService } from '../src/prisma/prisma.service';
 const envPath = path.join(__dirname, '..', '.env');
 if (existsSync(envPath)) process.loadEnvFile(envPath);
 
+// O registro de acesso e uma linha JSON por requisicao: util em producao,
+// ilegivel no meio da saida do teste. As metricas continuam sendo alimentadas.
+process.env.HTTP_LOG = 'off';
+
 let passed = 0;
 function check(label: string, fn: () => void) {
   fn();
@@ -146,6 +150,7 @@ async function main() {
       sku,
       name: `Produto E2E ${sku}`,
       price: 10,
+      cost: 6,
       unit: 'UN',
       initialStock: 5,
       minStock: 1,
@@ -182,6 +187,32 @@ async function main() {
       assert.equal(sale.body.terminal, 'Caixa E2E');
     });
     saleId = sale.body.id;
+
+    // 5b) Custo gravado NO ITEM da venda. Sem este snapshot, mudar o custo do
+    // produto amanha reescreveria a margem de hoje — e o DRE de um periodo ja
+    // fechado passaria a devolver outro numero a cada reprecificacao.
+    const itemCusto = await app.get(PrismaService).saleItem.findFirst({
+      where: { saleId: sale.body.id },
+      select: { unitCost: true },
+    });
+    check('item da venda guarda o custo que valia no momento', () => {
+      assert.ok(itemCusto, 'venda sem item');
+      assert.equal(Number(itemCusto!.unitCost), 6);
+    });
+
+    const custoNovo = await api('PATCH', `/products/${productId}`, { cost: 9 });
+    const hoje = new Date();
+    const dia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+    const margemDepois = await api('GET', `/reports/products?from=${dia}&to=${dia}`);
+    check('reprecificar o custo nao mexe na margem ja realizada', () => {
+      assert.equal(custoNovo.status, 200);
+      const linha = margemDepois.body.linhas.find(
+        (l: any) => l.productId === productId,
+      );
+      assert.ok(linha, 'produto fora do relatorio de margem');
+      // 2 un x custo 6 gravado na venda — nao 2 x 9, o custo de agora.
+      assert.equal(Number(linha.custo), 12);
+    });
 
     // 6) Caixa: dinheiro da venda entrou (100 + 20 = 120)
     const afterSale = await api('GET', '/cash/current');
@@ -226,7 +257,19 @@ async function main() {
       assert.ok(withDoc.body.fiscalDocument?.id, 'sem fiscalDocument na venda');
     });
     const fiscalId = withDoc.body.fiscalDocument.id;
-    const emitted = await api('POST', `/fiscal/documents/${fiscalId}/emit`);
+    // A emissao ja dispara em segundo plano no fechamento da venda. Aqui
+    // forcamos de novo (idempotente) e aguardamos o documento sair de
+    // PROCESSANDO: se o disparo assincrono ainda estiver falando com o
+    // provedor simulado, a trava condicional devolve o estado atual.
+    let emitted = await api('POST', `/fiscal/documents/${fiscalId}/emit`);
+    for (
+      let i = 0;
+      i < 40 && ['PENDENTE', 'PROCESSANDO'].includes(emitted.body?.status);
+      i++
+    ) {
+      await new Promise((r) => setTimeout(r, 50));
+      emitted = await api('POST', `/fiscal/documents/${fiscalId}/emit`);
+    }
     check('documento fiscal AUTORIZADA com chave de 44 digitos + QR', () => {
       assert.ok([200, 201].includes(emitted.status));
       assert.equal(emitted.body.status, 'AUTORIZADA');
@@ -1362,6 +1405,68 @@ async function main() {
       assert.ok(linha, 'sem registro de inventory.adjust');
       assert.equal(linha.detail.tipo, 'PERDA');
       assert.equal(String(linha.detail.quantidade), '0.5');
+    });
+
+    // 13) Agendamento de relatorios: cria, envia agora e confere a trilha.
+    // O canal REGISTRO fecha o ciclo sem credencial de terceiro — e o que
+    // permite provar que o agendamento funciona antes de a loja contratar
+    // e-mail ou WhatsApp.
+    const agendaInvalida = await api('POST', '/reports/schedules', {
+      report: 'vendas',
+      name: 'Vendas para a gerencia',
+      frequency: 'DIARIO',
+      hour: 7,
+      channel: 'EMAIL',
+      recipient: '11999999999',
+    });
+    check('agendamento de e-mail com telefone e recusado', () => {
+      assert.equal(agendaInvalida.status, 400, 'destinatario incompativel deveria dar 400');
+    });
+
+    const agenda = await api('POST', '/reports/schedules', {
+      report: 'vendas',
+      name: 'Vendas de ontem (e2e)',
+      frequency: 'DIARIO',
+      hour: 7,
+      channel: 'REGISTRO',
+      recipient: 'gerencia.e2e@loja.test',
+    });
+    check('cria agendamento diario e mascara o destinatario', () => {
+      assert.equal(agenda.status, 201);
+      assert.ok(agenda.body.nextRunAt, 'agendamento sem proxima execucao');
+      assert.equal(agenda.body.recipientMascarado, 'ge**********@loja.test');
+      assert.ok(
+        !('recipient' in agenda.body),
+        'a listagem nao pode devolver o destinatario em claro',
+      );
+    });
+
+    const envio = await api('POST', `/reports/schedules/${agenda.body.id}/run`, {});
+    const detalhe = await api('GET', `/reports/schedules/${agenda.body.id}`);
+    check('enviar agora entrega e registra na trilha, sem gastar a ocorrencia', () => {
+      assert.ok([200, 201].includes(envio.status), `envio falhou: ${envio.status}`);
+      assert.equal(envio.body.status, 'ENVIADO');
+      assert.equal(detalhe.body.entregas.length, 1);
+      assert.equal(detalhe.body.entregas[0].recipient, 'ge**********@loja.test');
+      // O "enviar agora" e teste manual: a proxima execucao programada continua
+      // de pe, senao conferir o agendamento cancelaria o envio do dia.
+      assert.equal(detalhe.body.nextRunAt, agenda.body.nextRunAt);
+    });
+
+    await api('DELETE', `/reports/schedules/${agenda.body.id}`);
+
+    // 14) Metricas do processo: latencia por rota e contadores de negocio.
+    const metricas = await api('GET', '/ops/metrics');
+    check('metricas trazem rota normalizada e contador de vendas', () => {
+      assert.equal(metricas.status, 200);
+      assert.ok(metricas.body.desdeBoot, 'metrica sem marco de boot');
+      assert.ok(metricas.body.contadores['vendas.concluidas'] >= 1);
+      // A rota entra normalizada (`/sales/:id`), nunca com o id na etiqueta:
+      // uma serie por venda faria a memoria crescer com o movimento da loja.
+      assert.ok(
+        metricas.body.rotas.some((r: any) => r.rota === 'GET /api/sales/:id'),
+        'rota de venda nao aparece normalizada nas metricas',
+      );
     });
 
   } finally {

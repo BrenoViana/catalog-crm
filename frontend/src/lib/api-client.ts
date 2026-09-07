@@ -221,8 +221,14 @@ export interface ProductsReport {
   /** A lista bateu no teto de linhas do servidor e vem cortada na cauda. */
   truncado: boolean;
   limite: number;
-  /** A margem usa o custo ATUAL do produto — a venda não guarda snapshot de custo. */
+  /**
+   * `true` só quando restam itens sem custo gravado na venda (venda anterior ao
+   * snapshot, ou produto sem custo cadastrado). Com cobertura total, a margem
+   * é realizada — não estimada.
+   */
   margemEstimada: boolean;
+  /** Quantos itens vendidos no período têm (e não têm) custo gravado. */
+  cobertura: ReportCostCoverage;
   produtosSemCusto: number;
   margemTotal: number;
   resumo: Array<{ curva: 'A' | 'B' | 'C'; produtos: number; receita: number; participacao: number }>;
@@ -243,11 +249,19 @@ export interface ProductsReport {
   }>;
 }
 
+export interface ReportCostCoverage {
+  itensComCusto: number;
+  itensSemCusto: number;
+  /** `null` quando não houve item nenhum no período. */
+  percentual: number | null;
+}
+
 export interface CategoriesReport {
   periodo: ReportPeriod;
   total: number;
   truncado: boolean;
   margemEstimada: boolean;
+  cobertura: ReportCostCoverage;
   produtosSemCusto: number;
   linhas: Array<{
     categoria: string;
@@ -339,6 +353,69 @@ export const reportsApi = {
   inventory: () => ApiClient.get<InventoryReport>('/reports/inventory'),
   exportCsv: (report: ReportKey, range: ReportRange) =>
     ApiClient.download(`/reports/export/${report}${reportQuery(range)}`, `${report}.csv`),
+};
+
+// ------------------------------------------------- Agendamento de relatórios
+export type ReportFrequency = 'DIARIO' | 'SEMANAL' | 'MENSAL';
+export type ReportChannel = 'REGISTRO' | 'EMAIL' | 'WHATSAPP';
+
+export interface ReportDelivery {
+  id: string;
+  runAt: string;
+  status: 'ENVIADO' | 'FALHOU';
+  channel: ReportChannel;
+  /** Já vem mascarado do servidor: a trilha não guarda o endereço em claro. */
+  recipient: string;
+  periodFrom: string;
+  periodTo: string;
+  rows: number;
+  bytes: number;
+  error: string | null;
+}
+
+export interface ReportSchedule {
+  id: string;
+  report: ReportKey;
+  name: string;
+  frequency: ReportFrequency;
+  hour: number;
+  weekday: number | null;
+  monthday: number | null;
+  channel: ReportChannel;
+  /** O destinatário só sai do servidor mascarado. */
+  recipientMascarado: string;
+  active: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  criadoPor: { id: string; name: string } | null;
+  ultimaEntrega: ReportDelivery | null;
+}
+
+export interface ReportScheduleInput {
+  report: string;
+  name: string;
+  frequency: ReportFrequency;
+  hour: number;
+  weekday?: number;
+  monthday?: number;
+  channel: ReportChannel;
+  recipient: string;
+  active?: boolean;
+}
+
+export const reportSchedulesApi = {
+  list: () => ApiClient.get<ReportSchedule[]>('/reports/schedules'),
+  detail: (id: string) =>
+    ApiClient.get<ReportSchedule & { entregas: ReportDelivery[] }>(
+      `/reports/schedules/${id}`,
+    ),
+  create: (input: ReportScheduleInput) =>
+    ApiClient.post<ReportSchedule>('/reports/schedules', input),
+  update: (id: string, input: Partial<ReportScheduleInput>) =>
+    ApiClient.patch<ReportSchedule>(`/reports/schedules/${id}`, input),
+  remove: (id: string) => ApiClient.delete<{ ok: true }>(`/reports/schedules/${id}`),
+  runNow: (id: string) =>
+    ApiClient.post<ReportDelivery | null>(`/reports/schedules/${id}/run`, {}),
 };
 
 // ---------------------------------------------------------------- Categorias
@@ -1267,8 +1344,13 @@ export interface CashflowReport {
     devolucoes: number;
     receitaLiquida: number;
     cmv: number;
+    /** `true` quando restam itens sem custo gravado: a margem vira recorte. */
     cmvEstimado: boolean;
     itensSemCusto: number;
+    /** Receita líquida das linhas com custo gravado — base da margem no recorte. */
+    receitaComCusto: number;
+    /** O resultado mistura margem de parte da receita com todas as despesas. */
+    resultadoParcial: boolean;
     margemBruta: number;
     margemPercent: number;
     despesas: number;

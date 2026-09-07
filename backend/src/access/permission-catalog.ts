@@ -74,6 +74,8 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'reports.view', group: 'Gestao', label: 'Ver relatórios', description: 'Consultar relatórios por período: vendas, produtos, categorias, operadores e estoque.' },
   { key: 'reports.export', group: 'Gestao', label: 'Exportar relatórios', description: 'Baixar em CSV os relatórios consultados — inclui custo, margem e desempenho por operador.' },
   { key: 'settings.manage', group: 'Gestao', label: 'Configurações da loja', description: 'Editar dados do emitente, identidade visual e políticas.' },
+  { key: 'ops.metrics', group: 'Gestao', label: 'Métricas do sistema', description: 'Ver latência, taxa de erro por rota e contadores técnicos do processo.' },
+  { key: 'reports.schedule', group: 'Gestao', label: 'Agendar relatórios', description: 'Programar o envio automático de relatórios e ver o histórico de entregas.' },
   { key: 'users.manage', group: 'Gestao', label: 'Usuários e permissões', description: 'Criar usuários, definir papéis e ajustar permissões.' },
 ];
 

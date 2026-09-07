@@ -32,10 +32,14 @@ type Bucket = { date: string; in: Prisma.Decimal; out: Prisma.Decimal };
  * Um lojista que confunde os dois vende bem e quebra. Por isso as duas aparecem
  * lado a lado, com a diferenca explicada pelos titulos em aberto.
  *
- * O CMV aqui e ESTIMADO sobre o custo atual do produto, nao sobre o custo do
- * dia da venda — o item da venda ainda nao guarda custo. Enquanto for assim, a
- * margem é uma boa aproximacao, nao um fechamento contabil, e o campo vem
- * marcado como estimativa para nao ser lido como outra coisa.
+ * O CMV sai do custo GRAVADO em cada item da venda (`SaleItem.unitCost`), nao
+ * do custo atual do produto: reprecificacao de fornecedor nao mexe mais na
+ * margem de um periodo ja fechado. Onde o snapshot falta — venda anterior a
+ * essa coluna, ou produto sem custo cadastrado — a margem passa a ser apurada
+ * so sobre a parte COBERTA (receita e devolucao dos itens com custo), e
+ * `cmvEstimado` diz que o numero e recorte. O que nao pode acontecer e somar o
+ * custo de metade dos itens contra a receita inteira: devolveria uma margem
+ * alta que ninguem distingue de uma margem boa.
  */
 @Injectable()
 export class CashflowService {
@@ -89,14 +93,42 @@ export class CashflowService {
         _sum: { total: true },
         _count: true,
       }),
-      // CMV estimado: quantidade vendida x custo atual do produto. O groupBy
-      // devolve uma linha por PRODUTO — limitado pelo catalogo, nao pelo numero
-      // de itens vendidos no periodo, que e o que estourava a memoria.
-      this.prisma.saleItem.groupBy({
-        by: ['productId'],
-        where: { sale: { status: 'CONCLUIDA', completedAt: period } },
-        _sum: { quantity: true },
-      }),
+      // CMV realizado: soma `unitCost * quantity` do snapshot gravado no item
+      // da venda. A conta tem de ser feita no BANCO — o produto do custo pela
+      // quantidade e linha a linha, e `groupBy` so agrega coluna que existe.
+      // Item sem snapshot (venda anterior a coluna, produto sem custo) e
+      // contado a parte: nunca somado como custo zero.
+      this.prisma.$queryRaw<
+        {
+          cmv: Prisma.Decimal | null;
+          receitaComCusto: Prisma.Decimal | null;
+          semCusto: bigint;
+        }[]
+      >`
+        SELECT SUM(i."unitCost" * i."quantity")                            AS "cmv",
+               -- Receita coberta LIQUIDA de devolucao. Precisa ser liquida
+               -- porque o caminho de cobertura total usa a receita liquida do
+               -- periodo: se aqui entrasse a receita bruta, um periodo com
+               -- devolucao relevante devolveria margem MAIOR no recorte do que
+               -- na conta cheia — o número mentindo para cima exatamente onde a
+               -- cobertura parcial deveria deixá-lo mais conservador.
+               SUM(i."total") FILTER (WHERE i."unitCost" IS NOT NULL)
+                 - COALESCE((
+                     SELECT SUM(ri."total")
+                       FROM "SaleReturnItem" ri
+                       JOIN "SaleItem" si ON si."id" = ri."saleItemId"
+                       JOIN "SaleReturn" r ON r."id" = ri."returnId"
+                      WHERE si."unitCost" IS NOT NULL
+                        AND r."createdAt" >= ${from}
+                        AND r."createdAt" <= ${to}
+                   ), 0)                                                   AS "receitaComCusto",
+               COUNT(*) FILTER (WHERE i."unitCost" IS NULL)                AS "semCusto"
+          FROM "SaleItem" i
+          JOIN "Sale" s ON s."id" = i."saleId"
+         WHERE s."status" = 'CONCLUIDA'
+           AND s."completedAt" >= ${from}
+           AND s."completedAt" <= ${to}
+      `,
       // So o que entrou de verdade: NEGADO e ESTORNADO nao sao dinheiro.
       this.prisma.payment.findMany({
         take: 50_000,
@@ -136,25 +168,14 @@ export class CashflowService {
     const devolucoes = D(returns._sum.total ?? 0);
     const receitaLiquida = receitaBruta.minus(devolucoes);
 
-    const custoPorProduto = new Map<string, Prisma.Decimal | null>(
-      (
-        await this.prisma.product.findMany({
-          where: { id: { in: items.map((i) => i.productId) } },
-          select: { id: true, cost: true },
-        })
-      ).map((p) => [p.id, p.cost]),
-    );
-
-    let cmv = D(0);
-    let itensSemCusto = 0;
-    for (const item of items) {
-      const custo = custoPorProduto.get(item.productId);
-      if (custo == null) {
-        itensSemCusto += 1;
-        continue;
-      }
-      cmv = cmv.plus(D(custo).mul(item._sum.quantity ?? 0));
-    }
+    const cmv = D(items[0]?.cmv ?? 0);
+    const itensSemCusto = Number(items[0]?.semCusto ?? 0);
+    // Receita SO das linhas que tem custo gravado. E o denominador honesto da
+    // margem quando a cobertura e parcial: dividir um CMV de metade dos itens
+    // pela receita inteira devolve uma margem alta que ninguem distingue de uma
+    // margem boa — e todo periodo anterior ao snapshot, sem nenhum custo,
+    // apareceria com margem de 100%.
+    const receitaComCusto = D(items[0]?.receitaComCusto ?? 0);
 
     const despesasPorCategoria = new Map<string, Prisma.Decimal>();
     let despesas = D(0);
@@ -167,7 +188,12 @@ export class CashflowService {
       );
     }
 
-    const margemBruta = receitaLiquida.minus(cmv);
+    // Com cobertura total a margem e sobre a receita liquida do periodo; com
+    // cobertura parcial, numerador e denominador passam a ser a mesma parte
+    // coberta — as duas ja liquidas de devolucao —, e a resposta diz que e
+    // recorte (`cmvEstimado`).
+    const baseMargem = itensSemCusto > 0 ? receitaComCusto : receitaLiquida;
+    const margemBruta = baseMargem.minus(cmv);
     const resultado = margemBruta.minus(despesas);
 
     // --------------------------------------------------------- Caixa
@@ -239,15 +265,28 @@ export class CashflowService {
         devolucoes,
         receitaLiquida,
         cmv,
-        /** Custo aproximado: usa o custo ATUAL do produto, nao o do dia da venda. */
-        cmvEstimado: true,
+        // O custo vem gravado na venda, nao do custo atual do produto. So volta
+        // a ser recorte quando ha item sem snapshot — venda anterior a coluna,
+        // ou produto sem custo cadastrado.
+        cmvEstimado: itensSemCusto > 0,
         itensSemCusto,
+        /**
+         * Receita LIQUIDA das linhas com custo gravado: base da margem quando
+         * ha item sem custo.
+         */
+        receitaComCusto,
         margemBruta,
-        margemPercent: receitaLiquida.gt(0)
-          ? margemBruta.div(receitaLiquida).mul(100).toDecimalPlaces(2)
+        margemPercent: baseMargem.gt(0)
+          ? margemBruta.div(baseMargem).mul(100).toDecimalPlaces(2)
           : D(0),
         despesas,
         resultado,
+        /**
+         * O resultado do recorte mistura a margem de uma FRACAO da receita com
+         * 100% das despesas do periodo: fica pessimista de proposito, mas quem
+         * lê precisa saber que é recorte — `cmvEstimado` qualifica só o CMV.
+         */
+        resultadoParcial: itensSemCusto > 0,
         vendas: sales._count,
         devolucoesCount: returns._count,
       },

@@ -1,10 +1,12 @@
 import { Global, Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PassportModule } from '@nestjs/passport';
 import { ModuleGuard } from '../license/module.guard';
 import { JwtAuthGuard } from './auth.guard';
 import { JwtStrategy } from './jwt.strategy';
+import { MetricsService } from './metrics.service';
 import { PermissionsGuard } from './permissions.guard';
+import { RequestLogInterceptor } from './request-log.interceptor';
 
 /**
  * Seguranca global da API. A ORDEM abaixo e a ordem de execucao:
@@ -26,7 +28,13 @@ import { PermissionsGuard } from './permissions.guard';
     // rota que o modulo ia recusar de qualquer jeito, sem deixar trilha.
     { provide: APP_GUARD, useClass: ModuleGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // Registro de acesso e metricas. Interceptor (e nao middleware) porque so
+    // aqui o `userId` que os guards resolveram ja existe no request — o
+    // middleware roda antes da autenticacao e logaria toda requisicao como
+    // anonima.
+    MetricsService,
+    { provide: APP_INTERCEPTOR, useClass: RequestLogInterceptor },
   ],
-  exports: [PassportModule],
+  exports: [PassportModule, MetricsService],
 })
 export class CommonModule {}

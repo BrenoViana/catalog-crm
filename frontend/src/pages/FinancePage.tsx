@@ -161,20 +161,49 @@ function Painel({ report }: { report: CashflowReport }) {
           <Kpi
             label="Custo das mercadorias"
             value={brl(r.cmv)}
-            hint={r.itensSemCusto > 0 ? `${num(r.itensSemCusto)} itens sem custo cadastrado` : 'estimado pelo custo atual'}
+            hint={
+              r.itensSemCusto > 0
+                ? `${num(r.itensSemCusto)} itens sem custo gravado, fora do cálculo`
+                : 'custo gravado em cada venda'
+            }
           />
-          <Kpi label="Margem bruta" value={brl(r.margemBruta)} hint={`${num(r.margemPercent, 1)}% da receita`} />
+          <Kpi
+            label={r.cmvEstimado ? 'Margem bruta (parcial)' : 'Margem bruta'}
+            value={brl(r.margemBruta)}
+            hint={
+              r.cmvEstimado
+                ? `${num(r.margemPercent, 1)}% de ${brl(r.receitaComCusto)} — só a receita com custo gravado`
+                : `${num(r.margemPercent, 1)}% da receita`
+            }
+          />
           <Kpi label="Despesas pagas" value={brl(r.despesas)} />
           <Kpi
-            label="Resultado"
+            label={r.resultadoParcial ? 'Resultado (parcial)' : 'Resultado'}
             value={brl(r.resultado)}
             tone={r.resultado >= 0 ? 'ok' : 'warn'}
-            hint="margem bruta menos despesas"
+            hint={
+              r.resultadoParcial
+                ? 'margem de parte da receita menos todas as despesas — pessimista'
+                : 'margem bruta menos despesas'
+            }
           />
         </div>
         <p className="muted finance-note">
-          A margem é <strong>estimativa</strong>: o custo usado é o cadastrado hoje no produto, não o
-          do dia da venda. Serve para decidir preço, não para fechamento contábil.
+          {r.cmvEstimado ? (
+            <>
+              A margem sai do <strong>custo gravado em cada venda</strong>, mas{' '}
+              {num(r.itensSemCusto)} item(ns) do período não têm esse custo — venda anterior ao
+              registro do custo, ou produto sem custo cadastrado. Esses itens ficam{' '}
+              <strong>fora</strong> da conta, dos dois lados: a margem é apurada só sobre a receita
+              coberta. Como as despesas entram inteiras, o resultado do recorte é{' '}
+              <strong>pessimista</strong>, não otimista.
+            </>
+          ) : (
+            <>
+              A margem sai do <strong>custo gravado em cada venda</strong>, não do custo atual do
+              produto: reprecificação de fornecedor não desloca a margem de um período já fechado.
+            </>
+          )}
         </p>
       </section>
 

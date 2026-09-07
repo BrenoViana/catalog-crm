@@ -7,6 +7,7 @@ import {
 import { Prisma, SaleStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccessService } from '../access/access.service';
+import { MetricsService } from '../common/metrics.service';
 import { AuthorizationService } from '../access/authorization.service';
 import { ReceivablesService } from '../finance/receivables.service';
 import { FiscalService } from '../fiscal/fiscal.service';
@@ -40,6 +41,7 @@ export class SalesService {
     private readonly receivables: ReceivablesService,
     private readonly loyalty: LoyaltyService,
     private readonly settings: AppSettingsService,
+    private readonly metrics: MetricsService,
   ) {}
 
   list(params: { status?: string; take?: number }) {
@@ -116,6 +118,11 @@ export class SalesService {
         product,
         qty,
         unitPrice,
+        // Snapshot do custo, do mesmo jeito que o preco: a margem de uma venda
+        // e um fato do dia em que ela aconteceu. Sem gravar aqui, uma
+        // reprecificacao de fornecedor amanha reescreveria o CMV de hoje, e o
+        // DRE de um periodo ja fechado mudaria sozinho.
+        unitCost: product.cost === null ? null : D(product.cost),
         gross,
         // Desconto digitado pelo operador. A promocao entra depois, separada,
         // porque as duas respondem a politicas diferentes.
@@ -382,6 +389,7 @@ export class SalesService {
               description: l.product.name,
               quantity: l.qty,
               unitPrice: l.unitPrice,
+              unitCost: l.unitCost,
               discount: l.discount,
               // Snapshot da campanha: a promocao pode ser editada ou apagada
               // depois, e o item da venda tem de continuar explicando o preco.
@@ -558,6 +566,12 @@ export class SalesService {
         },
       });
     }
+
+    // Contadores de negocio: latencia de rota nao responde "o balcao vendeu
+    // hoje?". Estes numeros respondem, e sao os que a loja pergunta quando
+    // desconfia que alguma coisa parou.
+    this.metrics.increment('vendas.concluidas');
+    this.metrics.increment('vendas.itens', lines.length);
 
     // Autorizacao dos pagamentos que passam por gateway. Fora da transacao,
     // pela mesma razao da emissao fiscal: chamada externa nao segura lock de
@@ -812,6 +826,7 @@ export class SalesService {
         });
     }
 
+    this.metrics.increment('vendas.canceladas');
     return canceled;
   }
 
@@ -1143,6 +1158,7 @@ export class SalesService {
       });
     }
 
+    this.metrics.increment('vendas.devolucoes');
     return saleReturn;
   }
 }

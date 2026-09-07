@@ -12,23 +12,10 @@ import { AuthorizationService } from '../access/authorization.service';
 import { CurrentUser } from '../common/current-user.decorator';
 import { RequirePermissions } from '../common/permissions.decorator';
 import { RequireModule } from '../license/module.guard';
-import { csvNumber, safeFilename, toCsv, type CsvColumn } from './csv';
+import { safeFilename } from './csv';
+import { isExportable, ReportCsvService } from './report-csv.service';
 import { ReportQueryDto } from './dto/report-query.dto';
 import { ReportsService } from './reports.service';
-
-/** Relatorios que podem ser exportados, e como cada um vira planilha. */
-const EXPORTABLE = [
-  'vendas',
-  'pagamentos',
-  'produtos',
-  'categorias',
-  'operadores',
-  'estoque',
-] as const;
-type ExportKey = (typeof EXPORTABLE)[number];
-
-const pct = (v: number | null | undefined) =>
-  v === null || v === undefined ? '' : csvNumber(v * 100, 1);
 
 /**
  * Relatorios gerenciais.
@@ -45,6 +32,7 @@ export class ReportsController {
   constructor(
     private readonly reports: ReportsService,
     private readonly authorization: AuthorizationService,
+    private readonly csv: ReportCsvService,
   ) {}
 
   @RequirePermissions('reports.view')
@@ -134,13 +122,11 @@ export class ReportsController {
     @CurrentUser('userId') userId: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<string> {
-    if (!EXPORTABLE.includes(report as ExportKey)) {
-      throw new BadRequestException(
-        `Relatório desconhecido: ${report}. Disponíveis: ${EXPORTABLE.join(', ')}.`,
-      );
+    if (!isExportable(report)) {
+      throw new BadRequestException(`Relatório desconhecido: ${report}.`);
     }
-    const key = report as ExportKey;
-    const { csv, periodo, linhas } = await this.buildCsv(key, query);
+    const key = report;
+    const { csv, periodo, linhas } = await this.csv.build(key, query);
 
     const nome = safeFilename(`${key}-${periodo}.csv`);
     res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
@@ -154,124 +140,5 @@ export class ReportsController {
     });
 
     return csv;
-  }
-
-  private async buildCsv(key: ExportKey, query: ReportQueryDto) {
-    switch (key) {
-      case 'vendas': {
-        const data = await this.reports.sales(query);
-        const cols: CsvColumn<(typeof data.serie)[number]>[] = [
-          { header: 'Período', value: (r) => r.label },
-          { header: 'Início', value: (r) => r.key },
-          { header: 'Vendas', value: (r) => r.vendas, numeric: true },
-          { header: 'Receita', value: (r) => csvNumber(r.receita), numeric: true },
-          { header: 'Descontos', value: (r) => csvNumber(r.descontos), numeric: true },
-          { header: 'Devoluções', value: (r) => csvNumber(r.devolucoes), numeric: true },
-        ];
-        return {
-          csv: toCsv(cols, data.serie),
-          periodo: `${data.periodo.from}_${data.periodo.to}`,
-          linhas: data.serie.length,
-        };
-      }
-      case 'pagamentos': {
-        const data = await this.reports.payments(query);
-        const cols: CsvColumn<(typeof data.linhas)[number]>[] = [
-          { header: 'Forma de pagamento', value: (r) => r.method },
-          { header: 'Recebimentos', value: (r) => r.quantidade, numeric: true },
-          { header: 'Valor', value: (r) => csvNumber(r.valor), numeric: true },
-          { header: 'Participação (%)', value: (r) => pct(r.participacao), numeric: true },
-          { header: 'Ticket médio', value: (r) => csvNumber(r.ticketMedio), numeric: true },
-        ];
-        return {
-          csv: toCsv(cols, data.linhas),
-          periodo: `${data.periodo.from}_${data.periodo.to}`,
-          linhas: data.linhas.length,
-        };
-      }
-      case 'produtos': {
-        const data = await this.reports.products(query);
-        const cols: CsvColumn<(typeof data.linhas)[number]>[] = [
-          { header: 'Curva', value: (r) => r.curva },
-          { header: 'SKU', value: (r) => r.sku },
-          { header: 'Produto', value: (r) => r.nome },
-          { header: 'Categoria', value: (r) => r.categoria },
-          { header: 'Quantidade', value: (r) => csvNumber(r.quantidade, 3), numeric: true },
-          { header: 'Receita', value: (r) => csvNumber(r.receita), numeric: true },
-          { header: 'Descontos', value: (r) => csvNumber(r.descontos), numeric: true },
-          { header: 'Custo (estimado)', value: (r) => (r.custo === null ? '' : csvNumber(r.custo)), numeric: true },
-          { header: 'Margem (estimada)', value: (r) => (r.margem === null ? '' : csvNumber(r.margem)), numeric: true },
-          { header: 'Margem (%)', value: (r) => pct(r.margemPercentual), numeric: true },
-          { header: 'Participação (%)', value: (r) => pct(r.participacao), numeric: true },
-          { header: 'Acumulado (%)', value: (r) => pct(r.participacaoAcumulada), numeric: true },
-        ];
-        return {
-          csv: toCsv(cols, data.linhas),
-          periodo: `${data.periodo.from}_${data.periodo.to}`,
-          linhas: data.linhas.length,
-        };
-      }
-      case 'categorias': {
-        const data = await this.reports.categories(query);
-        const cols: CsvColumn<(typeof data.linhas)[number]>[] = [
-          { header: 'Categoria', value: (r) => r.categoria },
-          { header: 'Produtos', value: (r) => r.produtos, numeric: true },
-          { header: 'Quantidade', value: (r) => csvNumber(r.quantidade, 3), numeric: true },
-          { header: 'Receita', value: (r) => csvNumber(r.receita), numeric: true },
-          { header: 'Margem (estimada)', value: (r) => csvNumber(r.margem), numeric: true },
-          { header: 'Margem (%)', value: (r) => pct(r.margemPercentual), numeric: true },
-          { header: 'Participação (%)', value: (r) => pct(r.participacao), numeric: true },
-        ];
-        return {
-          csv: toCsv(cols, data.linhas),
-          periodo: `${data.periodo.from}_${data.periodo.to}`,
-          linhas: data.linhas.length,
-        };
-      }
-      case 'operadores': {
-        const data = await this.reports.operators(query);
-        const cols: CsvColumn<(typeof data.linhas)[number]>[] = [
-          { header: 'Operador', value: (r) => r.nome },
-          { header: 'Vendas', value: (r) => r.vendas, numeric: true },
-          { header: 'Receita', value: (r) => csvNumber(r.receita), numeric: true },
-          { header: 'Ticket médio', value: (r) => csvNumber(r.ticketMedio), numeric: true },
-          { header: 'Descontos concedidos', value: (r) => csvNumber(r.descontos), numeric: true },
-          { header: 'Vendas canceladas', value: (r) => r.canceladas, numeric: true },
-          { header: 'Participação (%)', value: (r) => pct(r.participacao), numeric: true },
-        ];
-        return {
-          csv: toCsv(cols, data.linhas),
-          periodo: `${data.periodo.from}_${data.periodo.to}`,
-          linhas: data.linhas.length,
-        };
-      }
-      case 'estoque': {
-        const data = await this.reports.inventory();
-        const cols: CsvColumn<(typeof data.linhas)[number]>[] = [
-          { header: 'SKU', value: (r) => r.sku },
-          { header: 'Produto', value: (r) => r.nome },
-          { header: 'Categoria', value: (r) => r.categoria },
-          { header: 'Saldo', value: (r) => csvNumber(r.quantidade, 3), numeric: true },
-          { header: 'Mínimo', value: (r) => csvNumber(r.minimo, 3), numeric: true },
-          { header: 'Preço de venda', value: (r) => csvNumber(r.precoVenda), numeric: true },
-          {
-            header: 'Custo unitário',
-            value: (r) => (r.custoUnitario === null ? '' : csvNumber(r.custoUnitario)),
-          },
-          {
-            header: 'Valor a custo',
-            value: (r) => (r.valorCusto === null ? '' : csvNumber(r.valorCusto)),
-          },
-          { header: 'Valor a venda', value: (r) => csvNumber(r.valorVenda), numeric: true },
-          { header: 'Em ruptura', value: (r) => (r.ruptura ? 'sim' : 'não') },
-          { header: 'Sem giro (90d)', value: (r) => (r.semGiro90d ? 'sim' : 'não') },
-        ];
-        return {
-          csv: toCsv(cols, data.linhas),
-          periodo: data.geradoEm.slice(0, 10),
-          linhas: data.linhas.length,
-        };
-      }
-    }
   }
 }

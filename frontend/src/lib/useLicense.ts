@@ -53,4 +53,5 @@ export const MODULE_OF_PERMISSION: Record<string, ModuleKey> = {
   'dashboard.view': 'relatorios',
   'reports.view': 'relatorios',
   'reports.export': 'relatorios',
+  'reports.schedule': 'relatorios',
 };

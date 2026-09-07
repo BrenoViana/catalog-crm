@@ -150,6 +150,29 @@ enum LoyaltyEntryType {
   ESTORNO
 }
 
+/// Com que periodicidade um relatorio agendado e enviado.
+enum ReportFrequency {
+  DIARIO
+  SEMANAL
+  MENSAL
+}
+
+/// Por onde o relatorio agendado sai da loja.
+enum ReportChannel {
+  /// Provedor de registro: nao envia nada, grava o anexo na trilha de entregas.
+  /// E o padrao ate a loja configurar um canal real — o agendamento fica
+  /// exercitavel (e auditavel) sem depender de credencial de terceiro.
+  REGISTRO
+  EMAIL
+  WHATSAPP
+}
+
+/// Desfecho de uma tentativa de envio.
+enum ReportDeliveryStatus {
+  ENVIADO
+  FALHOU
+}
+
 enum TaxRegime {
   SIMPLES_NACIONAL
   SIMPLES_EXCESSO
@@ -188,6 +211,7 @@ model User {
   loyaltyEntries        LoyaltyEntry[]
   dailyClosings         DailyClosing[]         @relation("DailyClosingClosedBy")
   dailyClosingsReopened DailyClosing[]         @relation("DailyClosingReopenedBy")
+  reportSchedules       ReportSchedule[]
 
   @@index([roleId])
 }
@@ -489,6 +513,12 @@ model SaleItem {
   promotionId   String?
   promotionName String?
   total         Decimal @db.Decimal(12, 2)
+  /// Snapshot do custo unitario do produto no momento da venda.
+  /// Sem ele a margem historica se desloca a cada reprecificacao de fornecedor:
+  /// o relatorio recalculava o CMV de ontem com o custo de hoje. `null` quando
+  /// o produto nao tinha custo cadastrado — a linha fica sem margem, e a
+  /// cobertura e informada em vez de fingir precisao.
+  unitCost      Decimal? @db.Decimal(12, 2)
 
   returnItems SaleReturnItem[]
 
@@ -921,4 +951,76 @@ model LoyaltyEntry {
 
   @@index([accountId, createdAt])
   @@index([saleId])
+}
+
+
+// ---------------------------------------------------------------------------
+// Agendamento de relatorios (F6)
+// ---------------------------------------------------------------------------
+
+/// Um relatorio que sai sozinho, no horario combinado, para um destinatario.
+///
+/// A regra que da forma ao modelo: o agendamento guarda O QUE e PARA QUEM, e o
+/// periodo do relatorio e derivado da frequencia na hora de rodar — nao fica
+/// gravado. Guardar o periodo congelaria o "ontem" do dia em que o agendamento
+/// foi criado.
+model ReportSchedule {
+  id        String          @id @default(uuid())
+  /// Chave do relatorio, conferida contra a mesma lista branca da exportacao.
+  report    String
+  name      String
+  frequency ReportFrequency
+  /// Hora local da loja em que o envio deve sair (0-23).
+  hour      Int
+  /// Dia da semana (0=domingo) quando SEMANAL; dia do mes (1-28) quando MENSAL.
+  weekday   Int?
+  monthday  Int?
+  channel   ReportChannel
+  /// E-mail ou telefone do destinatario. Dado pessoal: so sai mascarado nas
+  /// listagens e na trilha de entregas.
+  recipient String
+  active    Boolean         @default(true)
+
+  /// Quando a proxima execucao e devida. E tambem o lock logico do runner:
+  /// so roda quem tem `nextRunAt <= agora`, e o campo avanca na mesma
+  /// transacao que grava a entrega.
+  nextRunAt DateTime
+  lastRunAt DateTime?
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  deliveries ReportDelivery[]
+
+  @@index([active, nextRunAt])
+}
+
+/// Uma tentativa de envio. Existe mesmo quando falha: agendamento que erra em
+/// silencio e pior do que agendamento que nao existe — o gestor acha que
+/// recebeu o numero e nao recebeu.
+model ReportDelivery {
+  id         String               @id @default(uuid())
+  /// Fica opcional para a evidencia sobreviver a remocao do agendamento: a
+  /// entrega prova que custo, margem e desempenho por operador sairam do
+  /// sistema, e apagar o agendamento nao pode apagar essa prova.
+  scheduleId String?
+  schedule   ReportSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  /// Nome do agendamento no momento da entrega — o que resta quando ele some.
+  scheduleName String
+  report       String
+  runAt      DateTime             @default(now())
+  status     ReportDeliveryStatus
+  channel    ReportChannel
+  /// Destinatario MASCARADO no momento do envio.
+  recipient  String
+  /// Janela que o relatorio cobriu, em rotulo AAAA-MM-DD.
+  periodFrom String
+  periodTo   String
+  rows       Int                  @default(0)
+  bytes      Int                  @default(0)
+  error      String?
+
+  @@index([scheduleId, runAt])
 }

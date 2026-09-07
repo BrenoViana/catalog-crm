@@ -26,6 +26,11 @@ async function main() {
   // RESTRICT de proposito (AuditLog.userId, DailyClosing.closedById), entao
   // apagar fora de ordem devolve P2003 em vez de limpar.
 
+  // Agendamento de relatorios: ReportSchedule.createdById e RESTRICT, entao
+  // precisa sair antes do usuario.
+  await prisma.reportDelivery.deleteMany();
+  await prisma.reportSchedule.deleteMany();
+
   // Financeiro
   await prisma.payableSettlement.deleteMany();
   await prisma.payable.deleteMany();

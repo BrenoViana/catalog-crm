@@ -2,6 +2,7 @@ import './ReportsPage.css';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
+import { ReportSchedules } from '../components/ReportSchedules';
 import {
   reportsApi,
   type ReportGroupBy,
@@ -61,6 +62,10 @@ const TABS: Array<{ key: ReportKey; label: string; hint: string }> = [
   { key: 'estoque', label: 'Estoque', hint: 'Posição atual: valor parado, ruptura e giro.' },
 ];
 
+/** Aba de agendamento: fica ao lado dos relatorios, mas nao e um deles. */
+const SCHEDULES_TAB = 'agendamentos' as const;
+type TabKey = ReportKey | typeof SCHEDULES_TAB;
+
 const pct = (v: number | null | undefined, digits = 1) =>
   v === null || v === undefined
     ? '—'
@@ -114,8 +119,11 @@ function Truncado({ limite }: { limite: number }) {
 
 export function ReportsPage() {
   const canExport = useAuthStore((s) => s.permissions.includes('reports.export'));
+  const canSchedule = useAuthStore((s) => s.permissions.includes('reports.schedule'));
 
-  const [tab, setTab] = useState<ReportKey>('vendas');
+  // A aba de agendamentos nao e um relatorio: ela nao tem periodo, nao exporta
+  // e so aparece para quem pode agendar.
+  const [tab, setTab] = useState<TabKey>('vendas');
   const [preset, setPreset] = useState('30d');
   const [groupBy, setGroupBy] = useState<ReportGroupBy>('day');
   const [custom, setCustom] = useState(() => PRESETS[2].range());
@@ -134,7 +142,10 @@ export function ReportsPage() {
   const operators = useQuery({ queryKey, queryFn: () => reportsApi.operators(range), enabled: tab === 'operadores' });
   const inventory = useQuery({ queryKey, queryFn: () => reportsApi.inventory(), enabled: tab === 'estoque' });
 
-  const active = { vendas: sales, produtos: products, categorias: categories, pagamentos: payments, operadores: operators, estoque: inventory }[tab];
+  // `undefined` na aba de agendamentos, que nao consulta relatorio nenhum.
+  const active = tab === SCHEDULES_TAB
+    ? undefined
+    : { vendas: sales, produtos: products, categorias: categories, pagamentos: payments, operadores: operators, estoque: inventory }[tab];
 
   const maxSerie = useMemo(
     () => Math.max(1, ...(sales.data?.serie.map((s) => s.receita) ?? [1])),
@@ -145,6 +156,7 @@ export function ReportsPage() {
     setExportError('');
     setExporting(true);
     try {
+      if (tab === SCHEDULES_TAB) return;
       await reportsApi.exportCsv(tab, range);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : 'Falha ao exportar.');
@@ -165,15 +177,26 @@ export function ReportsPage() {
           <p className="eyebrow">Análise</p>
           <h1>Relatórios</h1>
         </div>
-        {canExport ? (
-          <button className="ghost-button" onClick={doExport} disabled={exporting || active.isLoading}>
+        {canExport && tab !== SCHEDULES_TAB ? (
+          <button className="ghost-button" onClick={doExport} disabled={exporting || active?.isLoading}>
             {exporting ? 'Gerando…' : 'Exportar CSV'}
           </button>
         ) : null}
       </div>
 
       <nav className="report-tabs" aria-label="Relatórios disponíveis">
-        {TABS.map((t) => (
+        {[
+          ...TABS,
+          ...(canSchedule
+            ? [
+                {
+                  key: SCHEDULES_TAB,
+                  label: 'Agendamentos',
+                  hint: 'Relatórios que saem sozinhos, no horário combinado.',
+                },
+              ]
+            : []),
+        ].map((t) => (
           <button
             key={t.key}
             type="button"
@@ -185,9 +208,15 @@ export function ReportsPage() {
           </button>
         ))}
       </nav>
-      <p className="muted report-hint">{TABS.find((t) => t.key === tab)?.hint}</p>
+      <p className="muted report-hint">
+        {tab === SCHEDULES_TAB
+          ? 'Relatórios que saem sozinhos, no horário combinado.'
+          : TABS.find((t) => t.key === tab)?.hint}
+      </p>
 
-      {tab !== 'estoque' ? (
+      {tab === SCHEDULES_TAB ? <ReportSchedules /> : null}
+
+      {tab !== 'estoque' && tab !== SCHEDULES_TAB ? (
         <div className="toolbar report-toolbar">
           <div className="report-presets">
             {PRESETS.map((p) => (
@@ -233,13 +262,13 @@ export function ReportsPage() {
       ) : null}
 
       {exportError ? <div className="error-message">{exportError}</div> : null}
-      {active.error ? (
+      {active?.error ? (
         <div className="error-message">
           Não foi possível carregar o relatório:{' '}
           {active.error instanceof Error ? active.error.message : 'tente novamente'}
         </div>
       ) : null}
-      {active.isLoading ? <Empty>Carregando o relatório…</Empty> : null}
+      {active?.isLoading ? <Empty>Carregando o relatório…</Empty> : null}
 
       {/* ------------------------------------------------------------ Vendas */}
       {tab === 'vendas' && sales.data ? (
@@ -341,12 +370,12 @@ export function ReportsPage() {
               />
             ))}
             <Kpi
-              label="Margem estimada"
+              label={products.data.margemEstimada ? 'Margem estimada' : 'Margem realizada'}
               value={brl(products.data.margemTotal)}
               hint={
                 products.data.produtosSemCusto
-                  ? `${products.data.produtosSemCusto} produto(s) sem custo cadastrado`
-                  : 'todos os produtos têm custo cadastrado'
+                  ? `${products.data.produtosSemCusto} produto(s) sem custo gravado`
+                  : 'custo gravado em todos os itens vendidos'
               }
             />
           </div>
@@ -357,9 +386,25 @@ export function ReportsPage() {
               <small className="muted">A: até 80% · B: até 95% · C: cauda</small>
             </div>
             <p className="muted report-note">
-              A margem usa o <strong>custo atual</strong> de cada produto — a venda não guarda
-              snapshot de custo, então uma mudança de preço de fornecedor desloca a margem
-              histórica. Use como ordem de grandeza, não como fechamento contábil.
+              {products.data.margemEstimada ? (
+                <>
+                  A margem sai do <strong>custo gravado na venda</strong>, mas{' '}
+                  {num(products.data.cobertura.itensSemCusto)} item(ns) do período não têm esse
+                  custo — venda anterior ao registro do custo, ou produto sem custo cadastrado.
+                  Esses itens ficam <strong>fora</strong> do cálculo, e não entram como custo
+                  zero: cobertura de{' '}
+                  {products.data.cobertura.percentual === null
+                    ? '—'
+                    : pct(products.data.cobertura.percentual, 0)}
+                  .
+                </>
+              ) : (
+                <>
+                  A margem sai do <strong>custo gravado em cada venda</strong>, não do custo atual
+                  do produto: reprecificação de fornecedor não desloca mais a margem de um período
+                  já fechado.
+                </>
+              )}
             </p>
             {products.data.truncado ? <Truncado limite={products.data.limite} /> : null}
             {products.data.linhas.length === 0 ? (

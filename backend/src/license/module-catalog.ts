@@ -103,7 +103,12 @@ export const MODULE_CATALOG: ModuleDef[] = [
       'Relatórios por período, curva ABC, margem e exportação. O dashboard em ' +
       'tempo real fica aqui.',
     core: false,
-    permissions: ['dashboard.view', 'reports.view', 'reports.export'],
+    permissions: [
+      'dashboard.view',
+      'reports.view',
+      'reports.export',
+      'reports.schedule',
+    ],
   },
   {
     key: 'escala',
