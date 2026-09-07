@@ -129,12 +129,12 @@ export class DailyClosingService {
   async close(dto: CloseDayDto, actorId: string) {
     const label = this.normalize(dto.date ?? todayLabel());
     if (label > todayLabel()) {
-      throw new BadRequestException('Nao da para fechar um dia que ainda nao aconteceu.');
+      throw new BadRequestException('Não da para fechar um dia que ainda não aconteceu.');
     }
 
     const existing = await this.findClosing(label);
     if (existing?.status === 'FECHADO') {
-      throw new ConflictException(`O dia ${label} ja esta fechado.`);
+      throw new ConflictException(`O dia ${label} já esta fechado.`);
     }
 
     const snapshot = await this.preview(label);
@@ -153,7 +153,7 @@ export class DailyClosingService {
     }
     if (snapshot.totals.sessions === 0) {
       throw new BadRequestException(
-        `Nenhum turno de caixa em ${label} — nao ha dia para fechar.`,
+        `Nenhum turno de caixa em ${label} — não ha dia para fechar.`,
       );
     }
 
@@ -166,7 +166,7 @@ export class DailyClosingService {
       const expected = D(snapshot.totals.counted);
       if (!counted.equals(expected)) {
         throw new BadRequestException(
-          `A contagem informada (${counted.toFixed(2)}) nao bate com a soma das ` +
+          `A contagem informada (${counted.toFixed(2)}) não bate com a soma das ` +
             `contagens dos turnos (${expected.toFixed(2)}). Confira os turnos antes de fechar.`,
         );
       }
@@ -224,7 +224,7 @@ export class DailyClosingService {
         e.code === 'P2002'
       ) {
         throw new ConflictException(
-          `O dia ${label} acabou de ser fechado por outro usuario.`,
+          `O dia ${label} acabou de ser fechado por outro usuário.`,
         );
       }
       throw e;
@@ -235,9 +235,9 @@ export class DailyClosingService {
   async reopen(dateLabel: string, dto: ReopenDayDto, actorId: string) {
     const label = this.normalize(dateLabel);
     const existing = await this.findClosing(label);
-    if (!existing) throw new NotFoundException(`O dia ${label} nao foi fechado.`);
+    if (!existing) throw new NotFoundException(`O dia ${label} não foi fechado.`);
     if (existing.status === 'REABERTO') {
-      throw new ConflictException(`O dia ${label} ja esta reaberto.`);
+      throw new ConflictException(`O dia ${label} já esta reaberto.`);
     }
 
     const row = await this.prisma.dailyClosing.update({

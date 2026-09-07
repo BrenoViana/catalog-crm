@@ -68,7 +68,7 @@ export class FiscalContingencyService implements OnModuleInit, OnModuleDestroy {
       for (const { id } of due) {
         await this.fiscal.transmitContingency(id).catch((err) => {
           this.log.error(
-            `Falha ao transmitir a contingencia ${id}: ${
+            `Falha ao transmitir a contingência ${id}: ${
               err instanceof Error ? err.message : err
             }`,
           );

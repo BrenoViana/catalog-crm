@@ -10,14 +10,14 @@ const MAX_ROWS = 5000;
 const COLUMN_ALIASES: Record<string, string> = {
   sku: 'sku',
   codigo: 'sku',
-  'codigo interno': 'sku',
+  'código interno': 'sku',
   name: 'name',
   nome: 'name',
   descricao: 'description',
   description: 'description',
   barcode: 'barcode',
   ean: 'barcode',
-  'codigo de barras': 'barcode',
+  'código de barras': 'barcode',
   unit: 'unit',
   unidade: 'unit',
   un: 'unit',
@@ -35,7 +35,7 @@ const COLUMN_ALIASES: Record<string, string> = {
   'estoque inicial': 'stock',
   quantidade: 'stock',
   minstock: 'minStock',
-  'estoque minimo': 'minStock',
+  'estoque mínimo': 'minStock',
   minimo: 'minStock',
 };
 
@@ -109,24 +109,24 @@ export class ProductsImportService {
 
         const price = parseDecimal(get('price'));
         if (price === null || price < 0) {
-          throw new Error(`Preco invalido: "${get('price')}".`);
+          throw new Error(`Preco inválido: "${get('price')}".`);
         }
 
         const costRaw = get('cost');
         const cost = costRaw ? parseDecimal(costRaw) : null;
         if (costRaw && (cost === null || cost < 0)) {
-          throw new Error(`Custo invalido: "${costRaw}".`);
+          throw new Error(`Custo inválido: "${costRaw}".`);
         }
 
         const stockRaw = get('stock');
         const stock = stockRaw ? parseDecimal(stockRaw) : null;
         if (stockRaw && (stock === null || stock < 0)) {
-          throw new Error(`Estoque invalido: "${stockRaw}".`);
+          throw new Error(`Estoque inválido: "${stockRaw}".`);
         }
         const minStockRaw = get('minStock');
         const minStock = minStockRaw ? parseDecimal(minStockRaw) : null;
         if (minStockRaw && (minStock === null || minStock < 0)) {
-          throw new Error(`Estoque minimo invalido: "${minStockRaw}".`);
+          throw new Error(`Estoque mínimo inválido: "${minStockRaw}".`);
         }
 
         const categoryName = get('category');
@@ -135,7 +135,7 @@ export class ProductsImportService {
           categoryId = categoryCache.get(categoryName.toLowerCase()) ?? null;
           if (!categoryId) {
             if (!createCategories) {
-              throw new Error(`Categoria "${categoryName}" nao existe.`);
+              throw new Error(`Categoria "${categoryName}" não existe.`);
             }
             const cat = await this.prisma.category.create({
               data: { name: categoryName },

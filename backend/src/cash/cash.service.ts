@@ -123,7 +123,7 @@ export class CashService {
     const existing = await this.prisma.cashSession.findFirst({
       where: { operatorId, status: 'ABERTA' },
     });
-    if (existing) throw new BadRequestException('Ja existe um caixa aberto.');
+    if (existing) throw new BadRequestException('Já existe um caixa aberto.');
 
     // Dia fechado no financeiro nao recebe turno novo: o fechamento e um
     // retrato assinado, e um caixa aberto depois dele deixaria vendas fora do
@@ -145,7 +145,7 @@ export class CashService {
       });
       if (closed) {
         throw new BadRequestException(
-          'O dia ja foi fechado no financeiro. Peca a reabertura do dia para abrir um novo turno.',
+          'O dia já foi fechado no financeiro. Peca a reabertura do dia para abrir um novo turno.',
         );
       }
 
@@ -247,7 +247,7 @@ export class CashService {
     });
     if (!session) {
       throw new NotFoundException(
-        sessionId ? 'Turno nao encontrado.' : 'Nenhum caixa aberto.',
+        sessionId ? 'Turno não encontrado.' : 'Nenhum caixa aberto.',
       );
     }
 
@@ -572,12 +572,12 @@ export class CashService {
     const fromStart = query.from ? parse(query.from) : toStart;
 
     if (fromStart > toStart) {
-      throw new BadRequestException('A data inicial nao pode ser maior que a final.');
+      throw new BadRequestException('A data inicial não pode ser maior que a final.');
     }
     const days = Math.round((toStart.getTime() - fromStart.getTime()) / DAY_MS) + 1;
     if (days > MAX_CONSOLIDATED_DAYS) {
       throw new BadRequestException(
-        `Periodo limitado a ${MAX_CONSOLIDATED_DAYS} dias. Estreite a janela.`,
+        `Período limitado a ${MAX_CONSOLIDATED_DAYS} dias. Estreite a janela.`,
       );
     }
     const to = new Date(toStart);

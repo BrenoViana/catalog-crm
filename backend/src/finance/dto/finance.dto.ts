@@ -212,7 +212,7 @@ export class PeriodQueryDto {
 /** Fechamento do dia. Sem `date`, fecha o dia de hoje. */
 export class CloseDayDto {
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date deve estar no formato AAAA-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data deve estar no formato AAAA-MM-DD.' })
   date?: string;
 
   /**
@@ -242,6 +242,6 @@ export class ReopenDayDto {
 /** Consulta de um dia especifico do fechamento. */
 export class DayQueryDto {
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date deve estar no formato AAAA-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data deve estar no formato AAAA-MM-DD.' })
   date?: string;
 }

@@ -33,7 +33,7 @@ function cell(value: unknown, numeric = false): string {
 export interface CsvColumn<T> {
   header: string;
   value: (row: T) => unknown;
-  /** Coluna gerada por `csvNumber`: nao leva neutralizacao de formula. */
+  /** Coluna gerada por `csvNumber`: não leva neutralizacao de formula. */
   numeric?: boolean;
 }
 

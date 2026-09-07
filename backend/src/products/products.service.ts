@@ -61,7 +61,7 @@ export class ProductsService {
       where: { id },
       include: { category: true, stock: true, taxGroup: true },
     });
-    if (!product) throw new NotFoundException('Produto nao encontrado.');
+    if (!product) throw new NotFoundException('Produto não encontrado.');
     return product;
   }
 
@@ -71,13 +71,13 @@ export class ProductsService {
       where: { OR: [{ barcode: code }, { sku: code }] },
       include: { category: true, stock: true, taxGroup: true },
     });
-    if (!product) throw new NotFoundException('Produto nao encontrado.');
+    if (!product) throw new NotFoundException('Produto não encontrado.');
     return product;
   }
 
   async create(dto: CreateProductDto) {
     const exists = await this.prisma.product.findUnique({ where: { sku: dto.sku } });
-    if (exists) throw new BadRequestException('Ja existe um produto com este SKU.');
+    if (exists) throw new BadRequestException('Já existe um produto com este SKU.');
 
     return this.prisma.product.create({
       data: {

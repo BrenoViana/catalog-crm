@@ -83,7 +83,7 @@ npm install                     # na raiz (workspaces)
 cd backend
 cp .env.example .env            # confira: DATABASE_URL precisa apontar para localhost
 npx prisma dev -d               # Postgres embarcado, sem Docker
-npx prisma migrate dev          # 'migrate deploy' e o comando de producao
+npx prisma migrate dev          # 'migrate deploy' é o comando de produção
 npm run seed                    # DESTRUTIVO — veja o aviso abaixo
 cd .. && npm run dev -w backend # http://localhost:3000/api
 npm run dev -w frontend         # http://localhost:5173

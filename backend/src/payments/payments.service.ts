@@ -139,7 +139,7 @@ export class PaymentsService {
           where: { id: payment.id },
           data: {
             status: 'NEGADO',
-            rejectionReason: 'Falha de comunicacao com o provedor de pagamento.',
+            rejectionReason: 'Falha de comunicação com o provedor de pagamento.',
           },
         })
         .catch(() => undefined);
@@ -260,7 +260,7 @@ export class PaymentsService {
       await restore();
       // Detalhe da excecao NAO vai para a trilha (mesma razao de SEC-024):
       // mensagem de cliente HTTP carrega URL e credencial do provedor.
-      await recordFailure('falha de comunicacao com o provedor');
+      await recordFailure('falha de comunicação com o provedor');
       return false;
     }
   }

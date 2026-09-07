@@ -76,7 +76,7 @@ export class PayablesService {
 
   async updateSupplier(id: string, dto: SupplierDto) {
     await this.prisma.supplier.findUniqueOrThrow({ where: { id } }).catch(() => {
-      throw new NotFoundException('Fornecedor nao encontrado.');
+      throw new NotFoundException('Fornecedor não encontrado.');
     });
     return this.prisma.supplier.update({
       where: { id },
@@ -96,7 +96,7 @@ export class PayablesService {
   async create(dto: CreatePayableDto, userId: string) {
     const dueDate = new Date(dto.dueDate);
     if (Number.isNaN(dueDate.getTime())) {
-      throw new BadRequestException('Vencimento invalido.');
+      throw new BadRequestException('Vencimento inválido.');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -206,12 +206,12 @@ export class PayablesService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
 
       const title = await tx.payable.findUnique({ where: { id } });
-      if (!title) throw new NotFoundException('Despesa nao encontrada.');
+      if (!title) throw new NotFoundException('Despesa não encontrada.');
       if (title.status === 'CANCELADO') {
-        throw new BadRequestException('Despesa cancelada nao aceita baixa.');
+        throw new BadRequestException('Despesa cancelada não aceita baixa.');
       }
       if (title.status === 'PAGO') {
-        throw new BadRequestException('Despesa ja esta quitada.');
+        throw new BadRequestException('Despesa já esta quitada.');
       }
 
       const saldo = D(title.amount).minus(title.paidAmount);
@@ -300,10 +300,10 @@ export class PayablesService {
 
   async cancel(id: string, dto: CancelTitleDto) {
     const title = await this.prisma.payable.findUnique({ where: { id } });
-    if (!title) throw new NotFoundException('Despesa nao encontrada.');
+    if (!title) throw new NotFoundException('Despesa não encontrada.');
     if (title.status === 'PAGO') {
       throw new BadRequestException(
-        'Despesa quitada nao pode ser cancelada — o dinheiro ja saiu.',
+        'Despesa quitada não pode ser cancelada — o dinheiro já saiu.',
       );
     }
     if (title.status === 'CANCELADO') return title;

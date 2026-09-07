@@ -53,7 +53,7 @@ export class AccessService implements OnModuleInit {
       // Nao derruba o boot: sem catalogo o guard nega por padrao, o que e o
       // comportamento seguro. O log deixa a causa visivel.
       this.log.error(
-        `Falha ao sincronizar o catalogo de permissoes: ${
+        `Falha ao sincronizar o catalogo de permissões: ${
           err instanceof Error ? err.message : err
         }`,
       );
@@ -139,7 +139,7 @@ export class AccessService implements OnModuleInit {
 
     this.invalidate();
     this.log.log(
-      `Catalogo de permissoes sincronizado (${PERMISSION_KEYS.length} permissoes, ${SYSTEM_ROLES.length} papeis internos).`,
+      `Catalogo de permissões sincronizado (${PERMISSION_KEYS.length} permissões, ${SYSTEM_ROLES.length} papeis internos).`,
     );
   }
 
@@ -202,10 +202,10 @@ export class AccessService implements OnModuleInit {
 
   async createRole(dto: { key: string; name: string; description?: string; permissions: string[] }) {
     const key = dto.key.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-    if (!key) throw new BadRequestException('Chave do papel invalida.');
+    if (!key) throw new BadRequestException('Chave do papel inválida.');
 
     const exists = await this.prisma.accessRole.findUnique({ where: { key } });
-    if (exists) throw new BadRequestException('Ja existe um papel com esta chave.');
+    if (exists) throw new BadRequestException('Já existe um papel com esta chave.');
 
     const role = await this.prisma.accessRole.create({
       data: {
@@ -228,12 +228,12 @@ export class AccessService implements OnModuleInit {
     dto: { name?: string; description?: string; permissions?: string[] },
   ) {
     const role = await this.prisma.accessRole.findUnique({ where: { id } });
-    if (!role) throw new NotFoundException('Papel nao encontrado.');
+    if (!role) throw new NotFoundException('Papel não encontrado.');
 
     // O Administrador e o ultimo recurso de acesso: nao pode perder permissao.
     if (role.key === ADMIN_ROLE_KEY && dto.permissions) {
       throw new BadRequestException(
-        'O papel Administrador tem acesso total por definicao e nao pode ser reduzido.',
+        'O papel Administrador tem acesso total por definição e não pode ser reduzido.',
       );
     }
 
@@ -269,11 +269,11 @@ export class AccessService implements OnModuleInit {
       where: { id },
       include: { _count: { select: { users: true } } },
     });
-    if (!role) throw new NotFoundException('Papel nao encontrado.');
-    if (role.system) throw new BadRequestException('Papel interno nao pode ser removido.');
+    if (!role) throw new NotFoundException('Papel não encontrado.');
+    if (role.system) throw new BadRequestException('Papel interno não pode ser removido.');
     if (role._count.users > 0) {
       throw new BadRequestException(
-        `Ha ${role._count.users} usuario(s) neste papel. Mova-os antes de remover.`,
+        `Ha ${role._count.users} usuário(s) neste papel. Mova-os antes de remover.`,
       );
     }
 
@@ -300,10 +300,10 @@ export class AccessService implements OnModuleInit {
   }) {
     const username = this.normalizeUsername(dto.username);
     const exists = await this.prisma.user.findUnique({ where: { username } });
-    if (exists) throw new BadRequestException('Ja existe um usuario com este login.');
+    if (exists) throw new BadRequestException('Já existe um usuário com este login.');
 
     const role = await this.prisma.accessRole.findUnique({ where: { id: dto.roleId } });
-    if (!role) throw new NotFoundException('Papel nao encontrado.');
+    if (!role) throw new NotFoundException('Papel não encontrado.');
     this.assertPassword(dto.password);
 
     const legacy = LEGACY_ROLES.find((r) => r === role.key);
@@ -324,14 +324,14 @@ export class AccessService implements OnModuleInit {
 
   async updateUser(id: string, dto: { name?: string; username?: string }) {
     const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException('Usuario nao encontrado.');
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
 
     let username: string | undefined;
     if (dto.username !== undefined) {
       username = this.normalizeUsername(dto.username);
       const taken = await this.prisma.user.findUnique({ where: { username } });
       if (taken && taken.id !== id) {
-        throw new BadRequestException('Ja existe um usuario com este login.');
+        throw new BadRequestException('Já existe um usuário com este login.');
       }
     }
 
@@ -354,7 +354,7 @@ export class AccessService implements OnModuleInit {
     actorId: string,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException('Usuario nao encontrado.');
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
     this.assertPassword(dto.password);
 
     if (id === actorId) {
@@ -394,8 +394,8 @@ export class AccessService implements OnModuleInit {
       this.prisma.user.findUnique({ where: { id: userId } }),
       this.prisma.accessRole.findUnique({ where: { id: roleId } }),
     ]);
-    if (!user) throw new NotFoundException('Usuario nao encontrado.');
-    if (!role) throw new NotFoundException('Papel nao encontrado.');
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+    if (!role) throw new NotFoundException('Papel não encontrado.');
 
     await this.guardLastAdmin(userId, { leavingAdmin: role.key !== ADMIN_ROLE_KEY });
 
@@ -414,7 +414,7 @@ export class AccessService implements OnModuleInit {
     overrides: { permissionKey: string; allow: boolean }[],
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('Usuario nao encontrado.');
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
 
     const valid = overrides.filter((o) => PERMISSION_KEYS.includes(o.permissionKey));
     await this.prisma.$transaction([
@@ -433,7 +433,7 @@ export class AccessService implements OnModuleInit {
 
   async setUserActive(userId: string, active: boolean) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('Usuario nao encontrado.');
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
     if (!active) await this.guardLastAdmin(userId, { leavingAdmin: true });
 
     const updated = await this.prisma.user.update({
@@ -480,7 +480,7 @@ export class AccessService implements OnModuleInit {
     const others = await this.countActiveManagers(userId);
     if (others === 0) {
       throw new BadRequestException(
-        'Este e o unico usuario ativo que administra permissoes. Promova outro antes.',
+        'Este e o unico usuário ativo que administra permissões. Promova outro antes.',
       );
     }
   }
@@ -488,7 +488,7 @@ export class AccessService implements OnModuleInit {
   private async assertSomeAdminRemains() {
     if ((await this.countActiveManagers()) === 0) {
       throw new BadRequestException(
-        'A mudanca deixaria o sistema sem nenhum usuario capaz de administrar permissoes.',
+        'A mudança deixaria o sistema sem nenhum usuário capaz de administrar permissões.',
       );
     }
   }

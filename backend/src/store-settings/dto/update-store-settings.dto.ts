@@ -46,13 +46,13 @@ export class UpdateStoreSettingsDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(LOGO_MAX_LENGTH, { message: 'Logo muito grande (maximo ~512 KB).' })
+  @MaxLength(LOGO_MAX_LENGTH, { message: 'Logo muito grande (máximo ~512 KB).' })
   @Matches(LOGO_PATTERN, { message: LOGO_MESSAGE })
   logoLightUrl?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(LOGO_MAX_LENGTH, { message: 'Logo muito grande (maximo ~512 KB).' })
+  @MaxLength(LOGO_MAX_LENGTH, { message: 'Logo muito grande (máximo ~512 KB).' })
   @Matches(LOGO_PATTERN, { message: LOGO_MESSAGE })
   logoDarkUrl?: string;
 

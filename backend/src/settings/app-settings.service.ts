@@ -28,7 +28,7 @@ export class AppSettingsService implements OnModuleInit {
       await this.syncCatalog();
     } catch (err) {
       this.log.error(
-        `Falha ao sincronizar as configuracoes: ${err instanceof Error ? err.message : err}`,
+        `Falha ao sincronizar as configurações: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -55,7 +55,7 @@ export class AppSettingsService implements OnModuleInit {
     }
     await this.prisma.appSetting.deleteMany({ where: { key: { notIn: SETTING_KEYS } } });
     this.cache = null;
-    this.log.log(`Configuracoes sincronizadas (${SETTING_KEYS.length} chaves).`);
+    this.log.log(`Configurações sincronizadas (${SETTING_KEYS.length} chaves).`);
   }
 
   private async values(): Promise<Map<string, unknown>> {
@@ -115,7 +115,7 @@ export class AppSettingsService implements OnModuleInit {
 
   async update(key: string, value: unknown) {
     const def = SETTING_BY_KEY.get(key);
-    if (!def) throw new NotFoundException(`Configuracao "${key}" nao existe.`);
+    if (!def) throw new NotFoundException(`Configuração "${key}" não existe.`);
 
     const parsed = this.coerce(def, value);
     await this.prisma.appSetting.update({ where: { key }, data: { value: parsed as never } });
@@ -133,13 +133,13 @@ export class AppSettingsService implements OnModuleInit {
     if (def.type === 'number') {
       const n = Number(value);
       if (!Number.isFinite(n)) {
-        throw new BadRequestException(`"${def.label}" precisa ser um numero.`);
+        throw new BadRequestException(`"${def.label}" precisa ser um número.`);
       }
       if (def.min != null && n < def.min) {
-        throw new BadRequestException(`"${def.label}" nao pode ser menor que ${def.min}.`);
+        throw new BadRequestException(`"${def.label}" não pode ser menor que ${def.min}.`);
       }
       if (def.max != null && n > def.max) {
-        throw new BadRequestException(`"${def.label}" nao pode ser maior que ${def.max}.`);
+        throw new BadRequestException(`"${def.label}" não pode ser maior que ${def.max}.`);
       }
       return n;
     }

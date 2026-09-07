@@ -1136,12 +1136,12 @@ async function main() {
       const negada = audit.body.find(
         (a: any) =>
           a.action === 'authorization.denied' &&
-          a.detail?.motivo === 'credenciais invalidas',
+          a.detail?.motivo === 'credenciais inválidas',
       );
       assert.ok(negada, 'senha errada de supervisor nao entrou na trilha');
       const auto = audit.body.find(
         (a: any) =>
-          a.action === 'authorization.denied' && a.detail?.motivo === 'auto-liberacao',
+          a.action === 'authorization.denied' && a.detail?.motivo === 'auto-liberação',
       );
       assert.ok(auto, 'auto-liberacao recusada nao entrou na trilha');
       assert.ok(

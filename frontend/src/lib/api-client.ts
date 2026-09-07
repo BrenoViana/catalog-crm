@@ -507,11 +507,26 @@ export interface StockRow {
   low: boolean;
   updatedAt: string;
 }
+export interface StockMovementRow {
+  id: string;
+  productId: string;
+  type: 'ENTRADA' | 'SAIDA' | 'AJUSTE' | 'VENDA' | 'DEVOLUCAO' | 'PERDA';
+  quantity: number;
+  reason: string | null;
+  userId: string | null;
+  saleId: string | null;
+  createdAt: string;
+  product?: Product;
+  user?: { id: string; name: string } | null;
+}
+
 export const inventoryApi = {
   list: () => ApiClient.get<StockRow[]>('/inventory'),
   lowStock: () => ApiClient.get<StockRow[]>('/inventory/low-stock'),
   movements: (productId?: string) =>
-    ApiClient.get<any[]>(`/inventory/movements${productId ? `?productId=${productId}` : ''}`),
+    ApiClient.get<StockMovementRow[]>(
+      `/inventory/movements${productId ? `?productId=${productId}` : ''}`,
+    ),
   adjust: (data: { productId: string; type: 'ENTRADA' | 'AJUSTE' | 'PERDA'; quantity: number; reason?: string }) =>
     ApiClient.post('/inventory/adjust', data),
 };

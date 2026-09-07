@@ -42,7 +42,7 @@ export function parseDayLabel(label: string): Date {
     date.getMonth() !== m - 1 ||
     date.getDate() !== d
   ) {
-    throw new BadRequestException(`Data invalida: ${label}`);
+    throw new BadRequestException(`Data inválida: ${label}`);
   }
   return date;
 }

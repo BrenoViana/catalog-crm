@@ -13,11 +13,11 @@ export type ReportGroupBy = 'day' | 'week' | 'month';
  */
 export class ReportQueryDto {
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from deve estar no formato AAAA-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data inicial deve estar no formato AAAA-MM-DD.' })
   from?: string;
 
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to deve estar no formato AAAA-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data final deve estar no formato AAAA-MM-DD.' })
   to?: string;
 
   @IsOptional()

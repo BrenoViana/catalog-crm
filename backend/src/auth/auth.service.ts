@@ -19,7 +19,7 @@ export class AuthService {
     });
 
     if (!user || !user.active || !bcrypt.compareSync(password, user.passwordHash)) {
-      throw new UnauthorizedException('Credenciais invalidas.');
+      throw new UnauthorizedException('Credenciais inválidas.');
     }
 
     const payload = { sub: user.id, username: user.username, role: user.role };

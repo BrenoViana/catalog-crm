@@ -92,7 +92,7 @@ export class ReportSchedulesService implements OnModuleInit, OnModuleDestroy {
         deliveries: { orderBy: { runAt: 'desc' }, take: MAX_DELIVERIES },
       },
     });
-    if (!row) throw new NotFoundException('Agendamento nao encontrado.');
+    if (!row) throw new NotFoundException('Agendamento não encontrado.');
     return { ...this.present(row, row), entregas: row.deliveries };
   }
 
@@ -129,7 +129,7 @@ export class ReportSchedulesService implements OnModuleInit, OnModuleDestroy {
 
   async update(id: string, dto: UpdateReportScheduleDto, userId: string) {
     const atual = await this.prisma.reportSchedule.findUnique({ where: { id } });
-    if (!atual) throw new NotFoundException('Agendamento nao encontrado.');
+    if (!atual) throw new NotFoundException('Agendamento não encontrado.');
 
     const merged = {
       frequency: dto.frequency ?? atual.frequency,
@@ -166,7 +166,7 @@ export class ReportSchedulesService implements OnModuleInit, OnModuleDestroy {
 
   async remove(id: string, userId: string) {
     const atual = await this.prisma.reportSchedule.findUnique({ where: { id } });
-    if (!atual) throw new NotFoundException('Agendamento nao encontrado.');
+    if (!atual) throw new NotFoundException('Agendamento não encontrado.');
     await this.prisma.reportSchedule.delete({ where: { id } });
     await this.record('reports.schedule.delete', userId, atual);
     return { ok: true };
@@ -187,7 +187,7 @@ export class ReportSchedulesService implements OnModuleInit, OnModuleDestroy {
       );
     }
     const schedule = await this.prisma.reportSchedule.findUnique({ where: { id } });
-    if (!schedule) throw new NotFoundException('Agendamento nao encontrado.');
+    if (!schedule) throw new NotFoundException('Agendamento não encontrado.');
     // Sem esta trava, N cliques disparam N geracoes concorrentes do mesmo
     // relatorio — a reentrancia que o `running` do runner ja evita no ciclo
     // automatico.
@@ -289,7 +289,7 @@ export class ReportSchedulesService implements OnModuleInit, OnModuleDestroy {
         // aqui, visivelmente na trilha, e melhor do que o agendamento fingir
         // sucesso: o gestor precisa saber que o e-mail nunca saiu.
         throw new BadRequestException(
-          `Canal ${schedule.channel} ainda nao tem provedor configurado nesta instalacao.`,
+          `Canal ${schedule.channel} ainda não tem provedor configurado nesta instalação.`,
         );
       }
 

@@ -96,7 +96,7 @@ export class CustomersService {
 
   async findOne(id: string) {
     const customer = await this.prisma.customer.findUnique({ where: { id } });
-    if (!customer) throw new NotFoundException('Cliente nao encontrado.');
+    if (!customer) throw new NotFoundException('Cliente não encontrado.');
     return customer;
   }
 
@@ -231,12 +231,12 @@ export class CustomersService {
 
     if (titulos > 0) {
       throw new BadRequestException(
-        `Cliente tem ${titulos} titulo(s) de crediario em aberto. Baixe ou cancele antes de remover.`,
+        `Cliente tem ${titulos} título(s) de crediário em aberto. Baixe ou cancele antes de remover.`,
       );
     }
     if (conta && (conta._count.entries > 0 || D(conta.balance).gt(0))) {
       throw new BadRequestException(
-        'Cliente tem historico de fidelidade. Zere o saldo pelo ajuste manual ' +
+        'Cliente tem histórico de fidelidade. Zere o saldo pelo ajuste manual ' +
           'antes de remover — o extrato e a unica prova de saldo criado e usado.',
       );
     }

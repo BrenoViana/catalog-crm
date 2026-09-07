@@ -38,7 +38,7 @@ export class FakeElectronicProvider implements PaymentGateway {
 
     const amount = Number(payment.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      return { status: 'NEGADO', rejectionReason: 'Valor invalido.' };
+      return { status: 'NEGADO', rejectionReason: 'Valor inválido.' };
     }
 
     const externalId = `SIM-${Date.now().toString(36).toUpperCase()}-${payment.id.slice(0, 8)}`;

@@ -217,7 +217,7 @@ export class LicenseService {
   async update(dto: UpdateLicenseDto) {
     if (!this.publicKey && !this.isDev) {
       throw new BadRequestException(
-        'Instalacao sem chave publica de licenca configurada (LICENSE_PUBLIC_KEY).',
+        'Instalação sem chave publica de licenca configurada (LICENSE_PUBLIC_KEY).',
       );
     }
 

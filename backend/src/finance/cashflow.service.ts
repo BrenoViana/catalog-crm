@@ -52,7 +52,7 @@ export class CashflowService {
       ? new Date(query.from)
       : new Date(now.getFullYear(), now.getMonth(), 1);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-      throw new BadRequestException('Periodo invalido.');
+      throw new BadRequestException('Período inválido.');
     }
     // Fim de dia: quem digita "31/10" quer o dia inteiro, nao 00:00.
     to.setHours(23, 59, 59, 999);
@@ -63,7 +63,7 @@ export class CashflowService {
     }
     if (to.getTime() - from.getTime() > MAX_PERIOD_DAYS * DAY) {
       throw new BadRequestException(
-        `Periodo limitado a ${MAX_PERIOD_DAYS} dias. Estreite a janela.`,
+        `Período limitado a ${MAX_PERIOD_DAYS} dias. Estreite a janela.`,
       );
     }
     return { from, to };
@@ -106,10 +106,10 @@ export class CashflowService {
         }[]
       >`
         SELECT SUM(i."unitCost" * i."quantity")                            AS "cmv",
-               -- Receita coberta LIQUIDA de devolucao. Precisa ser liquida
+               -- Receita coberta LIQUIDA de devolução. Precisa ser liquida
                -- porque o caminho de cobertura total usa a receita liquida do
-               -- periodo: se aqui entrasse a receita bruta, um periodo com
-               -- devolucao relevante devolveria margem MAIOR no recorte do que
+               -- período: se aqui entrasse a receita bruta, um período com
+               -- devolução relevante devolveria margem MAIOR no recorte do que
                -- na conta cheia — o número mentindo para cima exatamente onde a
                -- cobertura parcial deveria deixá-lo mais conservador.
                SUM(i."total") FILTER (WHERE i."unitCost" IS NOT NULL)

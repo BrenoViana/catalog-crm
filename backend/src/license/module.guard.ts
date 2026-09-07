@@ -38,8 +38,8 @@ export const CoreRoute = () =>
 /**
  * Gate de licenca.
  *
- * Roda ANTES do PermissionsGuard de proposito: "seu plano nao inclui Fiscal" e
- * uma mensagem util, "voce nao tem permissao" nao e — e o operador que liga
+ * Roda ANTES do PermissionsGuard de proposito: "seu plano não inclui Fiscal" e
+ * uma mensagem util, "você não tem permissão" nao e — e o operador que liga
  * para o suporte repete a mensagem que viu.
  *
  * Devolve 403 com um corpo que diz qual modulo falta, para o frontend poder

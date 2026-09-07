@@ -39,7 +39,7 @@ export const SETTING_CATALOG: SettingDef[] = [
     key: 'login.rateLimit.windowMs',
     group: 'Seguranca',
     label: 'Janela do bloqueio de login (ms)',
-    description: 'Duracao da janela de contagem das tentativas de login.',
+    description: 'Duração da janela de contagem das tentativas de login.',
     type: 'number',
     default: 60_000,
     min: 1_000,
@@ -48,10 +48,10 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'authorize.rateLimit.max',
     group: 'Seguranca',
-    label: 'Tentativas de liberacao de supervisor por janela',
+    label: 'Tentativas de liberação de supervisor por janela',
     description:
       'Quantas vezes a senha de um supervisor pode ser tentada antes de bloquear. ' +
-      'Uso legitimo e raro: mantenha baixo — a rota e um oraculo de senha.',
+      'Uso legitimo e raro: mantenha baixo — a rota e um oráculo de senha.',
     type: 'number',
     default: 5,
     min: 1,
@@ -60,8 +60,8 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'authorize.rateLimit.windowMs',
     group: 'Seguranca',
-    label: 'Janela do bloqueio de liberacao (ms)',
-    description: 'Duracao da janela de contagem das tentativas de liberacao.',
+    label: 'Janela do bloqueio de liberação (ms)',
+    description: 'Duração da janela de contagem das tentativas de liberação.',
     type: 'number',
     default: 300_000,
     min: 1_000,
@@ -70,8 +70,8 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'sales.maxInstallments',
     group: 'Vendas',
-    label: 'Parcelas maximas no credito',
-    description: 'Maior numero de parcelas oferecido no PDV para pagamento em credito.',
+    label: 'Parcelas maximas no crédito',
+    description: 'Maior número de parcelas oferecido no PDV para pagamento em crédito.',
     type: 'number',
     default: 12,
     min: 1,
@@ -80,8 +80,8 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'sales.scanGapMs',
     group: 'Vendas',
-    label: 'Intervalo do leitor de codigo de barras (ms)',
-    description: 'Tempo maximo entre teclas para o PDV tratar a digitacao como leitura de scanner.',
+    label: 'Intervalo do leitor de código de barras (ms)',
+    description: 'Tempo máximo entre teclas para o PDV tratar a digitação como leitura de scanner.',
     type: 'number',
     default: 60,
     min: 10,
@@ -90,7 +90,7 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'fiscal.maxEmitAttempts',
     group: 'Fiscal',
-    label: 'Tentativas de emissao da NFC-e',
+    label: 'Tentativas de emissão da NFC-e',
     description: 'Quantas vezes o sistema tenta emitir antes de desistir e marcar como rejeitada.',
     type: 'number',
     default: 5,
@@ -109,9 +109,9 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'fiscal.contingencyStaleHours',
     group: 'Fiscal',
-    label: 'Horas em contingencia antes do alerta',
+    label: 'Horas em contingência antes do alerta',
     description:
-      'Documento fiscal parado em contingencia acima deste tempo, ainda sem ' +
+      'Documento fiscal parado em contingência acima deste tempo, ainda sem ' +
       'chegar a SEFAZ, vira alerta operacional.',
     type: 'number',
     default: 24,
@@ -123,8 +123,8 @@ export const SETTING_CATALOG: SettingDef[] = [
     group: 'Fiscal',
     label: 'Simular SEFAZ inacessivel',
     description:
-      'Somente com o provedor "fake": forca falha de comunicacao a cada emissao ' +
-      'para exercitar a contingencia. Um provedor real ignora este ajuste.',
+      'Somente com o provedor "fake": força falha de comunicação a cada emissão ' +
+      'para exercitar a contingência. Um provedor real ignora este ajuste.',
     type: 'boolean',
     default: false,
   },
@@ -143,9 +143,9 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'finance.installmentIntervalDays',
     group: 'Financeiro',
-    label: 'Intervalo entre parcelas do crediario (dias)',
+    label: 'Intervalo entre parcelas do crediário (dias)',
     description:
-      'Espacamento entre os vencimentos das parcelas geradas por uma venda no crediario. ' +
+      'Espaçamento entre os vencimentos das parcelas geradas por uma venda no crediário. ' +
       'A primeira parcela vence um intervalo depois da venda.',
     type: 'number',
     default: 30,
@@ -155,9 +155,9 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'finance.blockCreditWhenOverdue',
     group: 'Financeiro',
-    label: 'Bloquear crediario com titulo vencido',
+    label: 'Bloquear crediário com título vencido',
     description:
-      'Recusa nova venda a prazo para cliente que ja tem parcela vencida. ' +
+      'Recusa nova venda a prazo para cliente que já tem parcela vencida. ' +
       'Desligado, o vencido apenas consome o limite.',
     type: 'boolean',
     default: true,
@@ -170,7 +170,7 @@ export const SETTING_CATALOG: SettingDef[] = [
     label: 'Programa de fidelidade ativo',
     description:
       'Liga o cashback: venda com cliente identificado passa a gerar saldo, e o saldo ' +
-      'pode ser resgatado como pagamento no PDV. Desligar nao apaga saldo ja acumulado.',
+      'pode ser resgatado como pagamento no PDV. Desligar não apaga saldo já acumulado.',
     type: 'boolean',
     default: false,
   },
@@ -180,7 +180,7 @@ export const SETTING_CATALOG: SettingDef[] = [
     label: 'Cashback por venda (%)',
     description:
       'Percentual do valor efetivamente pago que vira saldo para o cliente. O que foi ' +
-      'pago COM saldo nao gera saldo novo.',
+      'pago COM saldo não gera saldo novo.',
     type: 'number',
     default: 0,
     min: 0,
@@ -189,7 +189,7 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'loyalty.minRedeem',
     group: 'Fidelidade',
-    label: 'Resgate minimo (R$)',
+    label: 'Resgate mínimo (R$)',
     description: 'Menor valor que o cliente pode usar de saldo numa venda.',
     type: 'number',
     default: 1,
@@ -213,7 +213,7 @@ export const SETTING_CATALOG: SettingDef[] = [
     label: 'Horas maximas de turno aberto',
     description:
       'A partir daqui o turno vira alerta operacional. Caixa aberto a noite inteira ' +
-      'e o cenario em que a gaveta muda de mao sem ninguem assinar a contagem.',
+      'e o cenário em que a gaveta muda de mão sem ninguem assinar a contagem.',
     type: 'number',
     default: 12,
     min: 1,
@@ -225,10 +225,10 @@ export const SETTING_CATALOG: SettingDef[] = [
   {
     key: 'ops.divergenceAlert',
     group: 'Caixa',
-    label: 'Divergencia de gaveta que vira alerta (R$)',
+    label: 'Divergência de gaveta que vira alerta (R$)',
     description:
-      'Diferenca absoluta de fechamento a partir da qual o turno entra na lista de ' +
-      'alertas. Erro de troco e centavos; divergencia recorrente e outra coisa.',
+      'Diferença absoluta de fechamento a partir da qual o turno entra na lista de ' +
+      'alertas. Erro de troco e centavos; divergência recorrente e outra coisa.',
     type: 'number',
     default: 20,
     min: 0,

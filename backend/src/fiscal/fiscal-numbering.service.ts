@@ -15,7 +15,7 @@ const FISCAL_CONTINGENCY_LOCK = 727280;
 export class RangeExhaustedError extends Error {
   constructor(readonly terminalCode: string) {
     super(
-      `A faixa de numeracao de contingencia do terminal "${terminalCode}" acabou.`,
+      `A faixa de numeração de contingência do terminal "${terminalCode}" acabou.`,
     );
     this.name = 'RangeExhaustedError';
   }
@@ -79,7 +79,7 @@ export class FiscalNumberingService {
     });
     if (!store || store.nfceContingencySeries == null) {
       throw new BadRequestException(
-        'Contingencia da NFC-e nao configurada: defina a serie de contingencia da loja ou uma faixa no terminal.',
+        'Contingência da NFC-e não configurada: defina a série de contingência da loja ou uma faixa no terminal.',
       );
     }
     const number = store.nfceContingencyNextNumber;

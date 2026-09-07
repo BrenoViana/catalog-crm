@@ -67,7 +67,7 @@ export class FiscalService {
       where: { id },
       include: { sale: { select: { id: true, number: true, total: true } } },
     });
-    if (!doc) throw new NotFoundException('Documento fiscal nao encontrado.');
+    if (!doc) throw new NotFoundException('Documento fiscal não encontrado.');
     return doc;
   }
 
@@ -82,7 +82,7 @@ export class FiscalService {
       where: { id: documentId },
       select: { status: true, emissionType: true },
     });
-    if (!pre) throw new NotFoundException('Documento fiscal nao encontrado.');
+    if (!pre) throw new NotFoundException('Documento fiscal não encontrado.');
     // Documento ja em contingencia: "reprocessar" significa transmitir a SEFAZ
     // com a serie e o numero que ele ja tem — nunca voltar a alocar numero.
     if (
@@ -117,7 +117,7 @@ export class FiscalService {
       if (!store) {
         return await this.settle(documentId, {
           status: 'REJEITADA',
-          rejectionReason: 'Configuracoes da loja nao preenchidas.',
+          rejectionReason: 'Configurações da loja não preenchidas.',
         });
       }
 
@@ -130,7 +130,7 @@ export class FiscalService {
         });
       } catch (err) {
         this.log.error(
-          `Emissao do doc ${documentId} falhou no provedor ${this.provider.name}: ${
+          `Emissão do doc ${documentId} falhou no provedor ${this.provider.name}: ${
             err instanceof Error ? err.message : err
           }`,
         );
@@ -145,7 +145,7 @@ export class FiscalService {
             data: {
               status: 'PENDENTE',
               rejectionReason:
-                'Falha de comunicacao com o provedor fiscal — sera reprocessado.',
+                'Falha de comunicação com o provedor fiscal — sera reprocessado.',
             },
           });
         }
@@ -198,7 +198,7 @@ export class FiscalService {
     const document = await this.prisma.fiscalDocument.findUnique({
       where: { id: documentId },
     });
-    if (!document) throw new NotFoundException('Documento fiscal nao encontrado.');
+    if (!document) throw new NotFoundException('Documento fiscal não encontrado.');
     if (document.status === 'CANCELADA') return document;
 
     // Ainda nao autorizada: nao ha nota na SEFAZ, basta marcar como cancelada.
@@ -324,7 +324,7 @@ export class FiscalService {
       where: { id: documentId },
       select: { status: true, emissionType: true },
     });
-    if (!pre) throw new NotFoundException('Documento fiscal nao encontrado.');
+    if (!pre) throw new NotFoundException('Documento fiscal não encontrado.');
     // Ja esta em contingencia: nao realoca numero, so devolve como esta.
     if (
       pre.status === 'CONTINGENCIA' ||
@@ -373,7 +373,7 @@ export class FiscalService {
 
   /**
    * Transmite a SEFAZ os documentos parados em contingencia. Chamado pelo botao
-   * "reprocessar contingencia" (a rede voltou AGORA) — por isso ignora o
+   * "reprocessar contingência" (a rede voltou AGORA) — por isso ignora o
    * backoff: `contingencyRetryAt` so vale para a varredura automatica de minuto.
    */
   async processContingency() {
@@ -437,7 +437,7 @@ export class FiscalService {
         });
       } catch (err) {
         this.log.warn(
-          `Transmissao da contingencia ${documentId} falhou: ${
+          `Transmissao da contingência ${documentId} falhou: ${
             err instanceof Error ? err.message : err
           } — reagendada.`,
         );
@@ -453,7 +453,7 @@ export class FiscalService {
       // Erro inesperado depois de reivindicar o documento: nunca o deixa preso
       // em PROCESSANDO — devolve a CONTINGENCIA para o proximo ciclo.
       this.log.error(
-        `Erro inesperado ao transmitir a contingencia ${documentId}: ${
+        `Erro inesperado ao transmitir a contingência ${documentId}: ${
           err instanceof Error ? err.message : err
         }`,
       );

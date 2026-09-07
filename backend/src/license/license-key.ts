@@ -46,7 +46,7 @@ export type VerifyResult =
  */
 function decodeBase64Url(v: string): Buffer {
   if (!/^[A-Za-z0-9_-]+$/.test(v)) {
-    throw new Error('Segmento base64url invalido.');
+    throw new Error('Segmento base64url inválido.');
   }
   return Buffer.from(v, 'base64url');
 }
@@ -80,7 +80,7 @@ export function verifyLicenseKey(
 ): VerifyResult {
   const partes = key.trim().split('.');
   if (partes.length !== 3 || partes[0] !== LICENSE_PREFIX) {
-    return { ok: false, motivo: 'Formato de chave invalido.' };
+    return { ok: false, motivo: 'Formato de chave inválido.' };
   }
 
   const [prefixo, payloadB64, sigB64] = partes;
@@ -103,7 +103,7 @@ export function verifyLicenseKey(
     assinaturaOk = false;
   }
   if (!assinaturaOk) {
-    return { ok: false, motivo: 'Assinatura da licenca nao confere.' };
+    return { ok: false, motivo: 'Assinatura da licenca não confere.' };
   }
 
   let payload: LicensePayload;
@@ -120,7 +120,7 @@ export function verifyLicenseKey(
     return { ok: false, motivo: 'Licenca sem cliente.' };
   }
   if (!isIsoDate(payload.expiraEm) || !isIsoDate(payload.emitidaEm)) {
-    return { ok: false, motivo: 'Licenca com datas invalidas.' };
+    return { ok: false, motivo: 'Licenca com datas inválidas.' };
   }
   if (!Array.isArray(payload.modulos)) {
     return { ok: false, motivo: 'Licenca sem lista de modulos.' };

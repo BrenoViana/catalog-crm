@@ -44,7 +44,7 @@ export class TerminalsService implements OnModuleInit {
    * Adota os nomes de terminal que ja aparecem em vendas e turnos como cadastro
    * de verdade. Best-effort e re-executavel: nunca derruba o boot, e um nome
    * que nao casa simplesmente fica sem vinculo (o codigo trata `terminalId`
-   * nulo como "terminal nao registrado").
+   * nulo como "terminal não registrado").
    */
   async onModuleInit() {
     try {
@@ -142,7 +142,7 @@ export class TerminalsService implements OnModuleInit {
 
   async findOne(id: string) {
     const terminal = await this.prisma.terminal.findUnique({ where: { id } });
-    if (!terminal) throw new NotFoundException('Terminal nao encontrado.');
+    if (!terminal) throw new NotFoundException('Terminal não encontrado.');
     return terminal;
   }
 
@@ -153,7 +153,7 @@ export class TerminalsService implements OnModuleInit {
       select: { id: true },
     });
     if (taken) {
-      throw new BadRequestException(`Ja existe um terminal com o codigo "${code}".`);
+      throw new BadRequestException(`Já existe um terminal com o código "${code}".`);
     }
     const contingency = await this.resolveContingencyShape(dto, null);
     const terminal = await this.prisma.terminal.create({
@@ -179,7 +179,7 @@ export class TerminalsService implements OnModuleInit {
         });
         if (taken) {
           throw new BadRequestException(
-            `Ja existe um terminal com o codigo "${code}".`,
+            `Já existe um terminal com o código "${code}".`,
           );
         }
         data.code = code;
@@ -272,12 +272,12 @@ export class TerminalsService implements OnModuleInit {
     }
     if (provided.length !== 3) {
       throw new BadRequestException(
-        'A faixa de contingencia precisa de serie, numero inicial e numero final juntos.',
+        'A faixa de contingência precisa de série, número inicial e número final juntos.',
       );
     }
     if ((contingencyRangeStart as number) > (contingencyRangeEnd as number)) {
       throw new BadRequestException(
-        'O numero inicial da faixa de contingencia nao pode ser maior que o final.',
+        'O número inicial da faixa de contingência não pode ser maior que o final.',
       );
     }
 
@@ -286,7 +286,7 @@ export class TerminalsService implements OnModuleInit {
     });
     if (store && store.nfceSeries === contingencySeries) {
       throw new BadRequestException(
-        'A serie de contingencia precisa ser diferente da serie normal da NFC-e.',
+        'A série de contingência precisa ser diferente da série normal da NFC-e.',
       );
     }
 
@@ -299,7 +299,7 @@ export class TerminalsService implements OnModuleInit {
     });
     if (clash) {
       throw new BadRequestException(
-        `A serie de contingencia ${contingencySeries} ja pertence ao terminal "${clash.code}".`,
+        `A série de contingência ${contingencySeries} já pertence ao terminal "${clash.code}".`,
       );
     }
 

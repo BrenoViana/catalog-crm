@@ -75,7 +75,7 @@ export class ReceivablesService {
         select: { amount: true, paidAmount: true, dueDate: true },
       }),
     ]);
-    if (!customer) throw new NotFoundException('Cliente nao encontrado.');
+    if (!customer) throw new NotFoundException('Cliente não encontrado.');
 
     const now = new Date();
     let used = D(0);
@@ -124,7 +124,7 @@ export class ReceivablesService {
 
     if (status.limit.lte(0)) {
       throw new BadRequestException(
-        `${status.customerName} nao tem limite de crediario liberado. ` +
+        `${status.customerName} não tem limite de crediário liberado. ` +
           'Defina o limite no financeiro antes de vender a prazo.',
       );
     }
@@ -141,7 +141,7 @@ export class ReceivablesService {
 
     if (amount.gt(status.available)) {
       throw new BadRequestException(
-        `Limite de crediario insuficiente: disponivel R$ ${status.available.toFixed(
+        `Limite de crediário insuficiente: disponível R$ ${status.available.toFixed(
           2,
         )}, venda a prazo de R$ ${amount.toFixed(2)}.`,
       );
@@ -227,7 +227,7 @@ export class ReceivablesService {
     );
     const first = new Date(dto.dueDate);
     if (Number.isNaN(first.getTime())) {
-      throw new BadRequestException('Vencimento invalido.');
+      throw new BadRequestException('Vencimento inválido.');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -361,18 +361,18 @@ export class ReceivablesService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
 
       const title = await tx.receivable.findUnique({ where: { id } });
-      if (!title) throw new NotFoundException('Titulo nao encontrado.');
+      if (!title) throw new NotFoundException('Título não encontrado.');
       if (title.status === 'CANCELADO') {
-        throw new BadRequestException('Titulo cancelado nao aceita baixa.');
+        throw new BadRequestException('Título cancelado não aceita baixa.');
       }
       if (title.status === 'PAGO') {
-        throw new BadRequestException('Titulo ja esta quitado.');
+        throw new BadRequestException('Título já esta quitado.');
       }
 
       const saldo = D(title.amount).minus(title.paidAmount);
       if (amount.gt(saldo)) {
         throw new BadRequestException(
-          `Baixa de R$ ${amount.toFixed(2)} maior que o saldo do titulo (R$ ${saldo.toFixed(2)}).`,
+          `Baixa de R$ ${amount.toFixed(2)} maior que o saldo do título (R$ ${saldo.toFixed(2)}).`,
         );
       }
 
@@ -409,7 +409,7 @@ export class ReceivablesService {
             cashSessionId: openSession.id,
             type: 'SUPRIMENTO',
             amount,
-            reason: `Recebimento do titulo #${title.number} — ${title.description}`,
+            reason: `Recebimento do título #${title.number} — ${title.description}`,
             userId,
           },
         });
@@ -431,11 +431,11 @@ export class ReceivablesService {
 
   async cancel(id: string, dto: CancelTitleDto) {
     const title = await this.prisma.receivable.findUnique({ where: { id } });
-    if (!title) throw new NotFoundException('Titulo nao encontrado.');
+    if (!title) throw new NotFoundException('Título não encontrado.');
     if (title.status === 'PAGO') {
       throw new BadRequestException(
-        'Titulo quitado nao pode ser cancelado — o dinheiro ja entrou. ' +
-          'Use uma devolucao ou um titulo de acerto.',
+        'Título quitado não pode ser cancelado — o dinheiro já entrou. ' +
+          'Use uma devolução ou um título de acerto.',
       );
     }
     if (title.status === 'CANCELADO') return title;

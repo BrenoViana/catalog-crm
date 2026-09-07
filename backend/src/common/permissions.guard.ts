@@ -36,7 +36,7 @@ export class PermissionsGuard implements CanActivate {
       authorizationGrant?: { permission: string; approverId: string };
     }>();
     const userId = request.user?.userId;
-    if (!userId) throw new ForbiddenException('Usuario nao identificado.');
+    if (!userId) throw new ForbiddenException('Usuário não identificado.');
 
     const granted = await this.access.effectivePermissions(userId);
     const missing = required.filter((p) => !granted.has(p));
@@ -56,7 +56,7 @@ export class PermissionsGuard implements CanActivate {
     }
 
     throw new ForbiddenException(
-      `Voce nao tem permissao para esta operacao (${missing.join(', ')}).`,
+      `Você não tem permissão para esta operação (${missing.join(', ')}).`,
     );
   }
 }

@@ -61,7 +61,7 @@ export class LicenseRenewalService implements OnModuleInit {
     try {
       url = new URL(raw);
     } catch {
-      this.log.error('LICENSE_RENEW_URL invalida; renovacao desligada.');
+      this.log.error('LICENSE_RENEW_URL inválida; renovacao desligada.');
       return null;
     }
     // Fora de desenvolvimento so https: a chave e o CNPJ do cliente viajam ali.

@@ -61,12 +61,12 @@ export class StoreSettingsService {
     const current = await this.prisma.storeSettings.findFirst();
     if (!current) {
       throw new BadRequestException(
-        'Preencha os dados da loja antes de ativar a contingencia.',
+        'Preencha os dados da loja antes de ativar a contingência.',
       );
     }
     if (active && current.nfceContingencySeries == null) {
       throw new BadRequestException(
-        'Defina a serie de contingencia da NFC-e antes de ativar o modo de contingencia.',
+        'Defina a série de contingência da NFC-e antes de ativar o modo de contingência.',
       );
     }
     return this.prisma.storeSettings.update({

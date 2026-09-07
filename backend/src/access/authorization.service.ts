@@ -74,8 +74,8 @@ export class AuthorizationService {
     };
 
     if (!PERMISSION_KEYS.includes(permission)) {
-      await deny('permissao inexistente');
-      throw new BadRequestException(`Permissao "${permission}" nao existe.`);
+      await deny('permissão inexistente');
+      throw new BadRequestException(`Permissão "${permission}" não existe.`);
     }
 
     const approver = await this.prisma.user.findUnique({
@@ -88,20 +88,20 @@ export class AuthorizationService {
       approver.active &&
       (await bcrypt.compare(password, approver.passwordHash));
     if (!senhaOk) {
-      await deny('credenciais invalidas');
+      await deny('credenciais inválidas');
       // Mensagem única: não revela se o usuário existe nem se está inativo.
-      throw new UnauthorizedException('Credenciais de supervisor invalidas.');
+      throw new UnauthorizedException('Credenciais de supervisor inválidas.');
     }
     if (approver.id === operatorId) {
-      await deny('auto-liberacao');
-      throw new ForbiddenException('A liberacao precisa vir de outro usuario.');
+      await deny('auto-liberação');
+      throw new ForbiddenException('A liberação precisa vir de outro usuário.');
     }
     if (!(await this.access.can(approver.id, permission))) {
-      await deny('supervisor sem a permissao');
+      await deny('supervisor sem a permissão');
       // Sem o nome: o 403 ja confirma que a senha estava certa; nao precisa
       // entregar tambem o nome completo de quem a operadora so conhece por login.
       throw new ForbiddenException(
-        'O usuario informado nao tem a permissao necessaria para liberar esta operacao.',
+        'O usuário informado não tem a permissão necessária para liberar esta operação.',
       );
     }
 

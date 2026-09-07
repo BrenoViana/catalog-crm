@@ -18,7 +18,7 @@ export class CreateTerminalDto {
    */
   @Matches(/^[A-Z0-9][A-Z0-9-]{1,39}$/, {
     message:
-      'O codigo do terminal deve ter de 2 a 40 caracteres, apenas letras maiusculas, digitos e hifen.',
+      'O código do terminal deve ter de 2 a 40 caracteres, apenas letras maiusculas, digitos e hifen.',
   })
   code: string;
 

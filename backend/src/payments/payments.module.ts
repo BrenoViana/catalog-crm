@@ -31,7 +31,7 @@ import { PAYMENT_GATEWAYS } from './providers/payment-gateway';
         if (!isDev && !allowed) {
           throw new Error(
             'Nenhum provedor de pagamento real configurado. O simulado confirma ' +
-              'qualquer valor sem cobrar: em producao isso e entregar mercadoria de ' +
+              'qualquer valor sem cobrar: em produção isso e entregar mercadoria de ' +
               'graca. Configure um gateway real. Apenas em ambiente de teste, e so ' +
               'nele, defina ALLOW_FAKE_PAYMENT_GATEWAY=true.',
           );

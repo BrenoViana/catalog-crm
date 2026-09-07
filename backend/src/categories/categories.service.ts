@@ -19,7 +19,7 @@ export class CategoriesService {
 
   async findOne(id: string) {
     const category = await this.prisma.category.findUnique({ where: { id } });
-    if (!category) throw new NotFoundException('Categoria nao encontrada.');
+    if (!category) throw new NotFoundException('Categoria não encontrada.');
     return category;
   }
 
@@ -35,7 +35,7 @@ export class CategoriesService {
 
     if (dto.parentId) {
       if (dto.parentId === id) {
-        throw new BadRequestException('Uma categoria nao pode ser pai dela mesma.');
+        throw new BadRequestException('Uma categoria não pode ser pai dela mesma.');
       }
       await this.findOne(dto.parentId);
       await this.assertNotDescendant(id, dto.parentId);
@@ -81,7 +81,7 @@ export class CategoriesService {
     while (cursor) {
       if (cursor === id) {
         throw new BadRequestException(
-          'Movimento invalido: o pai escolhido esta abaixo desta categoria.',
+          'Movimento inválido: o pai escolhido esta abaixo desta categoria.',
         );
       }
       if (seen.has(cursor)) break; // arvore ja corrompida; nao entrar em loop

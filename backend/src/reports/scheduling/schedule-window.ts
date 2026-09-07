@@ -52,7 +52,7 @@ export function nextRun(schedule: ScheduleShape, from: Date = new Date()): Date 
  * - **Diario**: ontem.
  * - **Semanal**: os sete dias que terminam ontem.
  * - **Mensal**: o mes CIVIL anterior, inteiro — que e o recorte com que o
- *   lojista e o contador ja conversam, e nao "os ultimos 30 dias".
+ *   lojista e o contador ja conversam, e nao "os últimos 30 dias".
  */
 export function windowFor(
   frequency: ReportFrequency,

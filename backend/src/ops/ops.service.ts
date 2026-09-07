@@ -159,7 +159,7 @@ export class OpsService {
         title: `Caixa aberto ha ${hours}h`,
         detail:
           `${s.operator.name} abriu ${s.terminal ?? 'um caixa'} ha ${hours} horas e ainda ` +
-          'nao fechou. Sem a contagem, a diferenca do turno some no do proximo.',
+          'não fechou. Sem a contagem, a diferença do turno some no do próximo.',
         link: '/caixa',
         data: { turno: s.id, operador: s.operator.name, horas: hours },
       });
@@ -200,9 +200,9 @@ export class OpsService {
       alerts.push({
         code: 'cash.operatorDivergence',
         level: row.occurrences >= 3 ? 'alto' : 'medio',
-        title: `Divergencia de caixa: ${name}`,
+        title: `Divergência de caixa: ${name}`,
         detail:
-          `${row.occurrences} fechamento(s) com diferenca nos ultimos 30 dias, somando ` +
+          `${row.occurrences} fechamento(s) com diferença nos últimos 30 dias, somando ` +
           `R$ ${row.total.toFixed(2)} em valor absoluto.`,
         link: '/caixa',
         data: {
@@ -237,9 +237,9 @@ export class OpsService {
         alerts.push({
           code: 'finance.dayNotClosed',
           level: 'medio',
-          title: `O dia ${yesterdayLabel} nao foi fechado`,
+          title: `O dia ${yesterdayLabel} não foi fechado`,
           detail: yesterdayClosing
-            ? `O dia foi reaberto e ainda nao voltou a ser fechado. Foram ${sessionsYesterday} turno(s).`
+            ? `O dia foi reaberto e ainda não voltou a ser fechado. Foram ${sessionsYesterday} turno(s).`
             : `Houve ${sessionsYesterday} turno(s) de caixa e nenhum fechamento consolidado.`,
           link: '/financeiro',
           data: { dia: yesterdayLabel, turnos: sessionsYesterday, iso: start.toISOString() },
@@ -255,8 +255,8 @@ export class OpsService {
         level: u.status === 'NEGADO' ? 'alto' : 'medio',
         title: `Pagamento ${u.status.toLowerCase()} em venda concluida`,
         detail:
-          `${u._count} pagamento(s) somando R$ ${amount.toFixed(2)} em vendas ja concluidas ` +
-          'nos ultimos 30 dias. Mercadoria saiu; o dinheiro nao entrou.',
+          `${u._count} pagamento(s) somando R$ ${amount.toFixed(2)} em vendas já concluidas ` +
+          'nos últimos 30 dias. Mercadoria saiu; o dinheiro não entrou.',
         link: '/vendas',
         data: { situacao: u.status, quantidade: u._count, valor: amount.toFixed(2) },
       });
@@ -267,9 +267,9 @@ export class OpsService {
       alerts.push({
         code: 'finance.overdueReceivables',
         level: 'medio',
-        title: 'Crediario vencido',
+        title: 'Crediário vencido',
         detail:
-          `${overdue._count} titulo(s) vencido(s), saldo de R$ ${overdueBalance.toFixed(2)}.`,
+          `${overdue._count} título(s) vencido(s), saldo de R$ ${overdueBalance.toFixed(2)}.`,
         link: '/financeiro',
         data: { titulos: overdue._count, saldo: overdueBalance.toFixed(2) },
       });
@@ -286,9 +286,9 @@ export class OpsService {
         alerts.push({
           code: 'fiscal.contingencyStale',
           level: 'alto',
-          title: `NFC-e em contingencia ha mais de ${hours}h`,
+          title: `NFC-e em contingência ha mais de ${hours}h`,
           detail:
-            `${contingencyDocs._count} documento(s) fiscal(is) em contingencia ainda nao ` +
+            `${contingencyDocs._count} documento(s) fiscal(is) em contingência ainda não ` +
             `transmitido(s) a SEFAZ. O mais antigo ha ${hours} horas.`,
           link: '/fiscal',
           data: { documentos: contingencyDocs._count, horas: hours },

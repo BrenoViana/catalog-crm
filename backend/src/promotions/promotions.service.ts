@@ -44,7 +44,7 @@ export class PromotionsService {
    */
   async update(id: string, dto: UpdatePromotionDto) {
     const existing = await this.prisma.promotion.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Promocao nao encontrada.');
+    if (!existing) throw new NotFoundException('Promocao não encontrada.');
 
     // `PartialType` do Nest reaplica `@IsOptional()` em todo campo herdado, e
     // `IsOptional` PULA a validacao quando o valor e `null`. Ou seja: o decorator
@@ -63,7 +63,7 @@ export class PromotionsService {
     for (const campo of NAO_ANULAVEIS) {
       if (campo in dto && (dto as Record<string, unknown>)[campo] === null) {
         throw new BadRequestException(
-          `O campo "${campo}" nao pode ser nulo. Envie um valor ou omita o campo.`,
+          `O campo "${campo}" não pode ser nulo. Envie um valor ou omita o campo.`,
         );
       }
     }
@@ -98,7 +98,7 @@ export class PromotionsService {
 
   async remove(id: string) {
     const existing = await this.prisma.promotion.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Promocao nao encontrada.');
+    if (!existing) throw new NotFoundException('Promocao não encontrada.');
     await this.prisma.promotion.delete({ where: { id } });
     return { id };
   }

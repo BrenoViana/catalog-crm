@@ -86,12 +86,12 @@ export class SalesService {
         },
       },
     });
-    if (!sale) throw new NotFoundException('Venda nao encontrada.');
+    if (!sale) throw new NotFoundException('Venda não encontrada.');
     return sale;
   }
 
   async create(dto: CreateSaleDto, operatorId: string, grantToken?: string) {
-    if (!operatorId) throw new BadRequestException('Operador nao identificado.');
+    if (!operatorId) throw new BadRequestException('Operador não identificado.');
 
     // Resolve o terminal (codigo ou nome livre -> id) antes da transacao: um
     // eventual cadastro lazy do terminal nao precisa ser atomico com a venda, e
@@ -130,7 +130,7 @@ export class SalesService {
     const lines = dto.items.map((item) => {
       const product = byId.get(item.productId);
       if (!product) {
-        throw new BadRequestException(`Produto ${item.productId} nao encontrado.`);
+        throw new BadRequestException(`Produto ${item.productId} não encontrado.`);
       }
       if (!product.active) {
         throw new BadRequestException(`Produto "${product.name}" esta inativo.`);
@@ -241,7 +241,7 @@ export class SalesService {
           throw new BadRequestException(
             `Desconto de ${pct.toFixed(1)}% excede o limite de ${limit.toFixed(
               0,
-            )}% da loja. Peca a liberacao de um supervisor.`,
+            )}% da loja. Peca a liberação de um supervisor.`,
           );
         }
       }
@@ -261,7 +261,7 @@ export class SalesService {
       .reduce((acc, p) => acc.plus(D(p.amount)), D(0));
     if (nonCashPaid.gt(total)) {
       throw new BadRequestException(
-        `Pagamento eletronico (${nonCashPaid}) excede o total da venda (${total}) — nao ha troco.`,
+        `Pagamento eletronico (${nonCashPaid}) excede o total da venda (${total}) — não ha troco.`,
       );
     }
 
@@ -281,13 +281,13 @@ export class SalesService {
     if (crediarioTotal.gt(0)) {
       if (!financeiroLicenciado) {
         throw new BadRequestException(
-          'Venda a prazo exige o modulo Financeiro, que nao esta na licenca ' +
-            'desta instalacao. Use outra forma de pagamento.',
+          'Venda a prazo exige o módulo Financeiro, que não esta na licenca ' +
+            'desta instalação. Use outra forma de pagamento.',
         );
       }
       if (!dto.customerId) {
         throw new BadRequestException(
-          'Venda no crediario exige cliente identificado — o titulo precisa de dono.',
+          'Venda no crediário exige cliente identificado — o título precisa de dono.',
         );
       }
       // O limite disponivel e conferido DENTRO da transacao, sob lock por
@@ -304,9 +304,9 @@ export class SalesService {
       const maxParcelas = await this.settings.getNumber('sales.maxInstallments');
       if (crediarioInstallments > maxParcelas) {
         throw new BadRequestException(
-          'Crediario em ' +
+          'Crediário em ' +
             crediarioInstallments +
-            ' parcelas excede o maximo de ' +
+            ' parcelas excede o máximo de ' +
             maxParcelas +
             ' da loja.',
         );
@@ -325,7 +325,7 @@ export class SalesService {
     if (loyaltyTotal.gt(0)) {
       if (!fidelidadeLicenciada || !loyaltyConfig.enabled) {
         throw new BadRequestException(
-          'O programa de fidelidade nao esta ativo nesta instalacao.',
+          'O programa de fidelidade não esta ativo nesta instalação.',
         );
       }
       if (!dto.customerId) {
@@ -339,7 +339,7 @@ export class SalesService {
       // senha compartilhada (SEC-070).
       if (loyaltyTotal.lt(loyaltyConfig.minRedeem)) {
         throw new BadRequestException(
-          `Resgate minimo de R$ ${D(loyaltyConfig.minRedeem).toFixed(2)}.`,
+          `Resgate mínimo de R$ ${D(loyaltyConfig.minRedeem).toFixed(2)}.`,
         );
       }
       const teto = total.mul(loyaltyConfig.maxRedeemPercent).div(100);
@@ -362,7 +362,7 @@ export class SalesService {
       }
       if (!mayRedeem) {
         throw new BadRequestException(
-          'Sem permissao para resgatar saldo de fidelidade. Peca a liberacao de um supervisor.',
+          'Sem permissão para resgatar saldo de fidelidade. Peca a liberação de um supervisor.',
         );
       }
     }
@@ -694,7 +694,7 @@ export class SalesService {
     if (fiscalLicenciado && !contingency) {
       void this.fiscal.emitForSale(sale.id).catch((err) => {
         this.log.error(
-          `Falha ao disparar emissao fiscal da venda ${sale.id}: ${
+          `Falha ao disparar emissão fiscal da venda ${sale.id}: ${
             err instanceof Error ? err.message : err
           }`,
         );
@@ -752,7 +752,7 @@ export class SalesService {
         returns: { include: { items: true } },
       },
     });
-    if (!sale) throw new NotFoundException('Venda nao encontrada.');
+    if (!sale) throw new NotFoundException('Venda não encontrada.');
     if (sale.status !== 'CONCLUIDA') {
       throw new BadRequestException(
         'Somente vendas concluidas podem ser canceladas.',
@@ -760,7 +760,7 @@ export class SalesService {
     }
     if (sale.cashSession && sale.cashSession.status === 'FECHADA') {
       throw new BadRequestException(
-        'O caixa desta venda ja foi fechado. Faca o estorno contabil manualmente.',
+        'O caixa desta venda já foi fechado. Faca o estorno contábil manualmente.',
       );
     }
 
@@ -823,7 +823,7 @@ export class SalesService {
       });
       if (claim.count !== 1) {
         throw new BadRequestException(
-          'Esta venda ja foi cancelada por outra requisicao.',
+          'Esta venda já foi cancelada por outra requisição.',
         );
       }
 
@@ -900,7 +900,7 @@ export class SalesService {
     // o dinheiro NAO voltou ao cliente.
     if (notRefunded.length > 0) {
       this.log.error(
-        `Venda ${sale.id} cancelada com ${notRefunded.length} pagamento(s) nao estornado(s).`,
+        `Venda ${sale.id} cancelada com ${notRefunded.length} pagamento(s) não estornado(s).`,
       );
       await this.authorization.record({
         action: 'sales.cancel.refundPending',
@@ -979,7 +979,7 @@ export class SalesService {
   ) {
     const { saleReturn, saleNumber, rateio } = await this.prisma.$transaction(async (tx) => {
       // Serializa por VENDA. Antes, a leitura da venda e o calculo de
-      // "quanto ja foi devolvido" aconteciam FORA da transacao — duas
+      // "quanto já foi devolvido" aconteciam FORA da transacao — duas
       // devolucoes concorrentes do mesmo item liam o mesmo retrato, passavam
       // as duas pela validacao de saldo, e cada uma devolvia estoque e
       // lancava sua propria sangria para uma quantidade que so existia uma
@@ -995,7 +995,7 @@ export class SalesService {
           returns: { include: { items: true } },
         },
       });
-      if (!sale) throw new NotFoundException('Venda nao encontrada.');
+      if (!sale) throw new NotFoundException('Venda não encontrada.');
       if (sale.status !== 'CONCLUIDA') {
         throw new BadRequestException(
           'So e possivel devolver itens de vendas concluidas.',
@@ -1029,14 +1029,14 @@ export class SalesService {
       const lines = [...requested.entries()].map(([saleItemId, qty]) => {
         const original = itemById.get(saleItemId);
         if (!original) {
-          throw new BadRequestException('Item informado nao pertence a esta venda.');
+          throw new BadRequestException('Item informado não pertence a esta venda.');
         }
         const remaining = D(original.quantity).minus(
           returnedByItem.get(saleItemId) ?? D(0),
         );
         if (qty.gt(remaining)) {
           throw new BadRequestException(
-            `Quantidade a devolver de "${original.description}" (${qty}) maior que o disponivel (${remaining}).`,
+            `Quantidade a devolver de "${original.description}" (${qty}) maior que o disponível (${remaining}).`,
           );
         }
         // Reembolso proporcional ao que foi efetivamente COBRADO.
@@ -1150,7 +1150,7 @@ export class SalesService {
             productId: l.original.productId,
             type: 'DEVOLUCAO',
             quantity: l.qty,
-            reason: `Devolucao #${number} da venda #${sale.number}`,
+            reason: `Devolução #${number} da venda #${sale.number}`,
             userId: operatorId,
             saleId: sale.id,
           },
@@ -1194,7 +1194,7 @@ export class SalesService {
             cashSessionId: openSession.id,
             type: 'SANGRIA',
             amount: reembolsavelEmDinheiro,
-            reason: `Devolucao #${number} da venda #${sale.number}`,
+            reason: `Devolução #${number} da venda #${sale.number}`,
             userId: operatorId,
             saleId: sale.id,
           },
@@ -1210,7 +1210,7 @@ export class SalesService {
           tx,
           sale.id,
           fatiaCrediario,
-          `Devolucao #${number} da venda #${sale.number}`,
+          `Devolução #${number} da venda #${sale.number}`,
         );
         crediarioSemTitulo = abatido.remaining;
       }
@@ -1229,7 +1229,7 @@ export class SalesService {
             redeemed: fatiaFidelidade,
             clawback,
             userId: operatorId,
-            reason: `Devolucao #${number} da venda #${sale.number}`,
+            reason: `Devolução #${number} da venda #${sale.number}`,
           });
         }
       }

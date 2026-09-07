@@ -54,7 +54,7 @@ export class GrantRateLimitGuard implements CanActivate {
     );
     if (retry !== null) {
       throw new HttpException(
-        `Muitas tentativas de liberacao. Tente novamente em ${retry}s.`,
+        `Muitas tentativas de liberação. Tente novamente em ${retry}s.`,
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }

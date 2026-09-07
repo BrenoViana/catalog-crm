@@ -37,10 +37,10 @@ export function getJwtSecret(): string {
 
   if (!isDev) {
     if (!secret) {
-      throw new Error('JWT_SECRET nao definido. Configure um segredo forte (>= 32 caracteres).');
+      throw new Error('JWT_SECRET não definido. Configure um segredo forte (>= 32 caracteres).');
     }
     if (secret.length < 32) {
-      throw new Error('JWT_SECRET muito curto (minimo 32 caracteres).');
+      throw new Error('JWT_SECRET muito curto (mínimo 32 caracteres).');
     }
     throw new Error('JWT_SECRET parece um valor de exemplo/placeholder. Gere um segredo aleatorio.');
   }

@@ -42,7 +42,7 @@ async function bootstrap() {
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port);
   // eslint-disable-next-line no-console
-  console.log(`API disponivel em http://localhost:${port}/api`);
+  console.log(`API disponível em http://localhost:${port}/api`);
 }
 
 bootstrap();

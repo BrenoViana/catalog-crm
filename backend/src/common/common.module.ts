@@ -21,7 +21,7 @@ import { RequestLogInterceptor } from './request-log.interceptor';
   providers: [
     JwtStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    // Entre o Jwt e o Permissions de proposito. "Seu plano nao inclui Fiscal" e
+    // Entre o Jwt e o Permissions de proposito. "Seu plano não inclui Fiscal" e
     // uma mensagem que o operador consegue repetir para o suporte; "sem
     // permissao" nao e. E, mais importante: o PermissionsGuard CONSOME o vale
     // de supervisor (uso unico) — deixa-lo rodar antes queimava o vale numa
