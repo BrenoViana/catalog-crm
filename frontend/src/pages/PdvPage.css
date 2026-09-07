@@ -208,11 +208,11 @@
    desconto, entao ele aparece com cor propria para nao ser confundido com o
    desconto concedido no balcao. */
 .cart-line-promo {
-  color: var(--ok, #3f7d3f);
+  color: var(--success-text);
   font-weight: 500;
 }
 .cart-totals-promo span {
-  color: var(--ok, #3f7d3f);
+  color: var(--success-text);
 }
 
 /* Crédito e saldo do cliente selecionado: o operador precisa dessa informação
@@ -223,7 +223,7 @@
   gap: 4px 16px;
   margin: -4px 0 12px;
   font-size: 12px;
-  color: var(--muted-text, #8a8f97);
+  color: var(--muted);
 }
 
 .customer-credit strong {

@@ -36,7 +36,7 @@
 }
 
 .promo-list li.is-selected {
-  border-color: var(--accent, #0e6e6e);
+  border-color: var(--primary);
   background: var(--surface-2, rgba(0, 0, 0, 0.04));
 }
 
@@ -124,7 +124,7 @@
 .promo-resumo {
   margin: 4px 0 0;
   padding: 10px 12px;
-  border-left: 3px solid var(--accent, #0e6e6e);
+  border-left: 3px solid var(--primary);
   background: var(--surface-2, rgba(0, 0, 0, 0.04));
   border-radius: 0 8px 8px 0;
   font-size: 0.9rem;

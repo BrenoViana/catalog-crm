@@ -243,7 +243,10 @@ export function Layout({ children }: { children: ReactNode }) {
             onClick={toggleTheme}
             aria-label={`Mudar para tema ${theme === 'dark' ? 'claro' : 'escuro'}`}
           >
-            <span>{theme === 'dark' ? '🌙 Tema escuro' : '☀️ Tema claro'}</span>
+            <span className="theme-toggle-label">
+              {theme === 'dark' ? <NAV_ICONS.lua /> : <NAV_ICONS.sol />}
+              {theme === 'dark' ? 'Tema escuro' : 'Tema claro'}
+            </span>
             <span>Trocar</span>
           </button>
 

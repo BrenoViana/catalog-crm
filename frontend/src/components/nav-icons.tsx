@@ -107,4 +107,18 @@ export const NAV_ICONS: Record<string, () => ReactNode> = {
       <path d="M12 2.8v2.4M12 18.8v2.4M4.5 7.5l2 1.2M17.5 15.3l2 1.2M4.5 16.5l2-1.2M17.5 8.7l2-1.2" />
     </Glyph>
   ),
+  /** Tema escuro. Era um emoji: emoji muda de desenho a cada sistema e não
+      herda a cor do item, então virou traço como todos os outros. */
+  lua: () => (
+    <Glyph>
+      <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.4 8.4 0 1 0 20 14.2Z" />
+    </Glyph>
+  ),
+  /** Tema claro. */
+  sol: () => (
+    <Glyph>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6" />
+    </Glyph>
+  ),
 };

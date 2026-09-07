@@ -1,5 +1,368 @@
 /* Financeiro: títulos, fluxo de caixa e resultado. */
 
+/* ------------------------------------------------- Cabeçalho preso no topo
+   64px, a mesma altura da área da marca na sidebar. Ele carrega as quatro
+   coisas que o operador procura sem pensar: onde está, para onde pode ir, como
+   filtrar e qual é a ação. Sangra até a borda do conteúdo (margem negativa
+   igual ao respiro da página) para a régua atravessar a tela inteira. */
+.page-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 64px;
+  margin: 0 calc(var(--page-pad) * -1) var(--space-6);
+  padding: 0 var(--page-pad);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-bar-id {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.page-bar-id h1 {
+  font-size: 18px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.page-subnav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.page-subnav::-webkit-scrollbar { display: none; }
+.page-subnav .pill-button { white-space: nowrap; }
+
+.page-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* A busca cede largura antes de qualquer coisa quebrar de linha: um botão de
+   ação sozinho numa segunda linha do cabeçalho custa mais que um campo curto. */
+.header-search {
+  width: 224px;
+  min-width: 120px;
+  flex: 0 1 224px;
+  height: 36px;
+  padding: 0 var(--space-3);
+  font-size: 13px;
+}
+
+.report-hint {
+  margin: 0 0 var(--space-5);
+  font-size: 13px;
+}
+
+@media (max-width: 1200px) {
+  /* Sem largura para as quatro faixas na mesma linha, o cabeçalho vira duas:
+     identidade + ação em cima, sub-navegação embaixo. Deixa de ser 64px fixos
+     e por isso deixa de ficar preso — meio cabeçalho grudado no topo atrapalha
+     mais do que ajuda. */
+  .page-bar {
+    position: static;
+    height: auto;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
+    padding: var(--space-4) var(--page-pad);
+  }
+  .page-subnav { order: 3; width: 100%; }
+}
+
+@media (max-width: 560px) {
+  .header-search { width: 100%; }
+  .page-bar-actions { width: 100%; margin-left: 0; }
+}
+
+/* ------------------------------------------------------ Faixa de números
+   Cinco colunas: quatro leituras da carteira e, no fim, o cartão em destaque
+   com o total do que está na tela. O destaque é o único bloco chapado de cor
+   da página — é ele que fecha a faixa e dá o ponto final da leitura. */
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.metric-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-5);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* Cofre do ícone: 44px, cantos generosos e o fundo na cor do próprio
+   indicador a 10% — a cor identifica a leitura antes do rótulo ser lido. */
+.metric-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: var(--metric-wash, var(--accent-soft));
+  color: var(--metric-ink, var(--primary));
+  margin-bottom: var(--space-1);
+}
+
+.metric-blue { --metric-wash: var(--accent-soft); --metric-ink: var(--primary); }
+.metric-rose { --metric-wash: var(--danger-bg); --metric-ink: var(--danger-text); }
+.metric-amber { --metric-wash: var(--warning-bg); --metric-ink: var(--warning-text); }
+.metric-emerald { --metric-wash: var(--success-bg); --metric-ink: var(--success-text); }
+
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.metric-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.metric-hero {
+  background: linear-gradient(135deg, var(--xan-blue), var(--xan-blue-deep));
+  border-color: transparent;
+  box-shadow: 0 0 24px var(--primary-glow);
+}
+
+/* Sobre o azul chapado tudo vira branco: o texto claro contra ele passa de
+   longe do mínimo de contraste, e a hierarquia volta a ser dada pela opacidade. */
+.metric-hero .metric-icon {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+.metric-hero .metric-label { color: rgba(255, 255, 255, 0.82); }
+.metric-hero .metric-value { color: #ffffff; }
+.metric-hero .metric-hint { color: rgba(255, 255, 255, 0.82); }
+
+/* Quando a faixa quebra em duas linhas, o cartão em destaque ocupa o que sobra
+   em vez de deixar um buraco ao lado — ele é o fecho da leitura, e fecho meio
+   vazio parece cartão faltando. */
+@media (max-width: 1400px) {
+  .metric-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .metric-strip .metric-hero { grid-column: 2 / -1; }
+}
+@media (max-width: 900px) {
+  .metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-strip .metric-hero { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .metric-strip { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------------------- Lista */
+
+.list-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.list-panel .form-error,
+.list-panel .success-message,
+.list-panel .finance-form {
+  margin: var(--space-4);
+}
+
+/* Barra de ações em massa: aparece só quando há seleção, presa entre a barra de
+   filtros e a tabela, na cor da marca — é uma mudança de modo da lista, e tem
+   de parecer uma. */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  border: 1px solid var(--primary);
+  animation: bulk-in 0.32s var(--ease-smooth);
+}
+
+@keyframes bulk-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.bulk-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.bulk-count span {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-left: var(--space-1);
+}
+
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.bulk-action {
+  padding: 7px var(--space-3);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: background 0.24s var(--ease-smooth), color 0.24s var(--ease-smooth);
+}
+.bulk-action:hover { background: var(--chip-bg); color: var(--text-strong); }
+.bulk-action.danger { color: var(--danger-text); }
+.bulk-action.danger:hover { background: var(--danger-bg); }
+
+/* --------------------------------------------------------- Tabela de títulos */
+
+/* Faltando largura, a tabela rola na horizontal em vez de espremer as colunas:
+   nome de cliente quebrado em três linhas e "R$ 1.564,80" partido no meio são
+   piores que uma barra de rolagem. */
+.invoice-table {
+  min-width: 940px;
+}
+
+.invoice-table .col-check {
+  width: 44px;
+  padding-right: 0;
+  text-align: center;
+}
+
+.invoice-table th,
+.invoice-table td {
+  padding-left: var(--space-4);
+  padding-right: var(--space-4);
+}
+
+/* Sem respiro vertical na célula, quem manda na altura é os 56px da linha —
+   inclusive nas que têm duas linhas de texto (número + parcela). Assim a
+   tabela mantém o mesmo passo de cima a baixo. */
+.invoice-table td {
+  padding-top: 0;
+  padding-bottom: 0;
+  vertical-align: middle;
+}
+
+.invoice-table .col-check + th,
+.invoice-table .col-check + td {
+  padding-left: var(--space-2);
+}
+
+/* Número, data e dinheiro em mono; nome e descrição em Outfit. A troca de
+   família é o que separa, de relance, identificador de texto corrido. */
+.cell-id,
+.cell-date {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.cell-amount {
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+/* Dinheiro nunca quebra: "R$ 1.564,80" partido em duas linhas deixa de ser
+   número e vira dois pedaços de texto. */
+.invoice-table .ta-right { white-space: nowrap; }
+
+.cell-name {
+  font-weight: 600;
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+
+.cell-desc {
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+}
+
+.cell-sub {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.row-selected td { background: var(--accent-softer); }
+.row-selected:hover td { background: var(--accent-soft); }
+
+.table-empty {
+  height: 96px;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* "Receber" é o que se veio fazer nesta tela. Esconder atrás do hover deixaria
+   a lista mais limpa e o trabalho mais lento — as ações ficam sempre visíveis,
+   discretas até o cursor chegar na linha. */
+.invoice-table .row-actions .mini-button {
+  transition: background 0.24s var(--ease-smooth), border-color 0.24s var(--ease-smooth), color 0.24s var(--ease-smooth);
+}
+
+.invoice-table tr:not(:hover) .row-actions .mini-button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
 .finance-note {
   margin: 12px 0 0;
   font-size: 13px;
@@ -40,10 +403,10 @@
   background: var(--warning-text, #9c6717);
 }
 .aging-list .share-fill.aging-mid {
-  background: var(--accent, #0e6e6e);
+  background: var(--primary);
 }
 .aging-list .share-fill.aging-far {
-  background: var(--muted-text, #8a8f97);
+  background: var(--muted);
 }
 
 /* Entradas x saídas por dia ---------------------------------------------- */
@@ -91,7 +454,7 @@
 
 .cash-day small {
   font-size: 11px;
-  color: var(--muted-text, #8a8f97);
+  color: var(--muted);
 }
 
 /* Formulários ------------------------------------------------------------ */
@@ -150,9 +513,11 @@
   margin-top: 16px;
 }
 
-/* Um título vencido tem de saltar aos olhos na lista. */
+/* Um título vencido tem de saltar aos olhos na lista. A tarja na borda repete
+   o que a etiqueta de situação já diz: quem varre a coluna da esquerda acha o
+   atraso sem ler linha por linha. */
 .row-late td:first-child {
-  border-left: 3px solid var(--warning-text, #9c6717);
+  box-shadow: inset 3px 0 0 var(--danger);
 }
 
 @media (max-width: 900px) {
@@ -171,7 +536,7 @@
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: .04em;
-  color: var(--text-muted, #6b7280);
+  color: var(--muted);
 }
 
 /* Botão que se comporta como link — usado para saltar para um dia da lista. */

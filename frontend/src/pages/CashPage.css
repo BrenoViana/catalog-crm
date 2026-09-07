@@ -20,7 +20,7 @@
 .drawer-alert p {
   margin: 4px 0 0;
   font-size: 0.88rem;
-  color: var(--text-muted, #667);
+  color: var(--muted);
 }
 .drawer-alert button { flex-shrink: 0; }
 

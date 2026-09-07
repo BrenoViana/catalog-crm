@@ -7,10 +7,66 @@
    ========================================================================== */
 
 /* ---------------------------------------------------------------- Tokens
-   O tema é trocado por data-theme no <html> (ver store/themeStore.ts).
-   Toda cor da UI sai daqui — nada de hex solto nas regras abaixo. */
+   Três camadas, nesta ordem, e nunca ao contrário:
+
+     primitivo (--xan-*)  →  semântico (--bg, --primary, …)  →  componente
+
+   Os primitivos são a paleta crua do guia Xan CRM e não aparecem em regra
+   nenhuma da interface. O que as telas leem é a camada semântica — por isso
+   trocar o tema é trocar de onde os nomes semânticos apontam, e nenhuma página
+   precisa saber disso.
+
+   O tema é trocado por data-theme no <html> (ver store/themeStore.ts). */
 :root {
-  font-family: Inter, 'Segoe UI', sans-serif;
+  /* -- Primitivos: neutros escuros em degraus (base → painel → elevado) */
+  --xan-base: #0d0d0d;
+  --xan-panel: #161616;
+  --xan-elevated: #1c1c1c;
+  --xan-line: #222222;
+  --xan-check: #333333;
+
+  /* -- Primitivos: neutros claros */
+  --xan-base-l: #f4f6fa;
+  --xan-panel-l: #ffffff;
+  --xan-elevated-l: #f1f5f9;
+  --xan-line-l: #e2e8f0;
+
+  /* -- Primitivos: acentos. O azul é a marca; o resto sinaliza estado. */
+  --xan-blue: #3b82f6;
+  --xan-blue-deep: #2563eb;
+  --xan-emerald: #34d399;
+  --xan-amber: #fbbf24;
+  --xan-rose: #fb7185;
+
+  /* Versões escurecidas dos mesmos matizes, para o tema claro: emerald e amber
+     vivos sobre branco ficam em ~1.8:1 e são ilegíveis como texto. */
+  --xan-emerald-d: #047857;
+  --xan-amber-d: #b45309;
+  --xan-rose-d: #be123c;
+
+  /* -- Primitivos: tipografia e tempo */
+  --font-sans: 'Outfit Variable', Outfit, Inter, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* -- Primitivos: malha de 8px. Tudo que espaça sai daqui. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+
+  /* Respiro da área de conteúdo. Fica em variável porque quem sangra até a
+     borda (o cabeçalho preso no topo) precisa saber quanto compensar. */
+  --page-pad: var(--space-8);
+
+  font-family: var(--font-sans);
   line-height: 1.5;
   font-weight: 500;
   font-synthesis: none;
@@ -19,48 +75,56 @@
   -moz-osx-font-smoothing: grayscale;
   color-scheme: dark;
 
-  --bg: #07111f;
-  --bg-strong: #0d1728;
-  --bg-glow: rgba(124, 156, 255, 0.18);
+  /* -- Semântico (escuro) */
+  --bg: var(--xan-base);
+  --bg-strong: var(--xan-base);
+  --bg-glow: transparent;
 
-  --surface: rgba(9, 17, 28, 0.88);
-  --surface-2: rgba(12, 20, 32, 0.9);
-  --surface-3: rgba(15, 23, 42, 0.9);
-  --surface-4: rgba(15, 23, 42, 0.7);
-  --input-bg: rgba(15, 23, 42, 1);
-  --chip-bg: rgba(148, 163, 184, 0.12);
+  --surface: var(--xan-panel);
+  --surface-2: var(--xan-panel);
+  --surface-3: var(--xan-elevated);
+  --surface-4: var(--xan-elevated);
+  --input-bg: var(--xan-elevated);
+  --chip-bg: rgba(255, 255, 255, 0.04);
+  --hover-wash: rgba(255, 255, 255, 0.02);
+  --checkbox-bg: var(--xan-check);
 
-  --border: rgba(148, 163, 184, 0.15);
-  --text: #e2ebff;
-  --text-strong: #edf4ff;
-  --text-soft: #dfe9ff;
-  --muted: #9aa9c6;
+  --border: var(--xan-line);
+  --text: #e8eef7;
+  --text-strong: #f1f5f9;
+  --text-soft: #cbd5e1;
+  --muted: #94a3b8;
 
-  --primary: #7c9cff;
-  --primary-strong: #5d7dff;
+  --primary: var(--xan-blue);
+  --primary-strong: var(--xan-blue-deep);
+  /* O azul da marca vale 3.9:1 sobre o painel — serve de moldura, ícone e
+     fundo, não de texto. Quando o azul precisa VIRAR texto, é este tom. */
+  --primary-text: #93c5fd;
   --on-primary: #ffffff;
-  --accent-soft: rgba(124, 156, 255, 0.12);
-  --accent-softer: rgba(124, 156, 255, 0.08);
-  --accent-border: rgba(124, 156, 255, 0.26);
-  --primary-glow: rgba(93, 125, 255, 0.35);
+  --accent-soft: rgba(59, 130, 246, 0.1);
+  --accent-softer: rgba(59, 130, 246, 0.06);
+  --accent-border: rgba(59, 130, 246, 0.35);
+  --primary-glow: rgba(59, 130, 246, 0.4);
+  --spotlight: rgba(59, 130, 246, 0.08);
 
-  --success: #3dd9a7;
-  --success-bg: rgba(61, 217, 167, 0.14);
-  --success-border: rgba(61, 217, 167, 0.3);
-  --success-text: #99f0cb;
+  --success: var(--xan-emerald);
+  --success-bg: rgba(52, 211, 153, 0.1);
+  --success-border: rgba(52, 211, 153, 0.3);
+  --success-text: var(--xan-emerald);
 
-  --warning: #ffb968;
-  --warning-bg: rgba(255, 185, 104, 0.14);
-  --warning-border: rgba(255, 185, 104, 0.32);
-  --warning-text: #ffd3a1;
+  --warning: var(--xan-amber);
+  --warning-bg: rgba(251, 191, 36, 0.1);
+  --warning-border: rgba(251, 191, 36, 0.3);
+  --warning-text: var(--xan-amber);
 
-  --danger-bg: rgba(255, 127, 127, 0.12);
-  --danger-border: rgba(255, 127, 127, 0.3);
-  --danger-text: #ffb3b3;
+  --danger: var(--xan-rose);
+  --danger-bg: rgba(251, 113, 133, 0.1);
+  --danger-border: rgba(251, 113, 133, 0.3);
+  --danger-text: var(--xan-rose);
 
-  --bar-from: #8fa8ff;
-  --bar-to: #5d7dff;
-  --shadow: 0 18px 48px rgba(15, 23, 42, 0.45);
+  --bar-from: var(--xan-blue);
+  --bar-to: var(--xan-blue-deep);
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 
   color: var(--text);
   background: var(--bg);
@@ -69,47 +133,52 @@
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --bg: #f3f5fa;
-  --bg-strong: #e8edf7;
-  --bg-glow: rgba(79, 110, 247, 0.12);
+  --bg: var(--xan-base-l);
+  --bg-strong: var(--xan-base-l);
+  --bg-glow: transparent;
 
-  --surface: #ffffff;
-  --surface-2: #ffffff;
-  --surface-3: #f8fafc;
-  --surface-4: #f1f5f9;
-  --input-bg: #ffffff;
-  --chip-bg: rgba(15, 23, 42, 0.06);
+  --surface: var(--xan-panel-l);
+  --surface-2: var(--xan-panel-l);
+  --surface-3: var(--xan-elevated-l);
+  --surface-4: var(--xan-elevated-l);
+  --input-bg: var(--xan-panel-l);
+  --chip-bg: rgba(15, 23, 42, 0.05);
+  --hover-wash: rgba(15, 23, 42, 0.025);
+  --checkbox-bg: #cbd5e1;
 
-  --border: rgba(15, 23, 42, 0.12);
+  --border: var(--xan-line-l);
   --text: #0f172a;
-  --text-strong: #0b1220;
+  --text-strong: #020617;
   --text-soft: #1e293b;
-  --muted: #64748b;
+  --muted: #475569;
 
-  --primary: #5470f5;
-  --primary-strong: #3b55d9;
+  --primary: var(--xan-blue-deep);
+  --primary-strong: #1d4ed8;
+  --primary-text: #1d4ed8;
   --on-primary: #ffffff;
-  --accent-soft: rgba(84, 112, 245, 0.1);
-  --accent-softer: rgba(84, 112, 245, 0.06);
-  --accent-border: rgba(84, 112, 245, 0.3);
-  --primary-glow: rgba(84, 112, 245, 0.25);
+  --accent-soft: rgba(37, 99, 235, 0.08);
+  --accent-softer: rgba(37, 99, 235, 0.05);
+  --accent-border: rgba(37, 99, 235, 0.28);
+  --primary-glow: rgba(37, 99, 235, 0.22);
+  --spotlight: rgba(37, 99, 235, 0.06);
 
-  --success: #0f9d70;
-  --success-bg: rgba(15, 157, 112, 0.12);
-  --success-border: rgba(15, 157, 112, 0.28);
-  --success-text: #0b7a57;
+  --success: var(--xan-emerald-d);
+  --success-bg: rgba(4, 120, 87, 0.1);
+  --success-border: rgba(4, 120, 87, 0.28);
+  --success-text: var(--xan-emerald-d);
 
-  --warning: #b26a12;
-  --warning-bg: rgba(216, 132, 32, 0.14);
-  --warning-border: rgba(216, 132, 32, 0.3);
-  --warning-text: #8a5210;
+  --warning: var(--xan-amber-d);
+  --warning-bg: rgba(180, 83, 9, 0.1);
+  --warning-border: rgba(180, 83, 9, 0.28);
+  --warning-text: var(--xan-amber-d);
 
-  --danger-bg: rgba(220, 38, 38, 0.1);
-  --danger-border: rgba(220, 38, 38, 0.26);
-  --danger-text: #b91c1c;
+  --danger: var(--xan-rose-d);
+  --danger-bg: rgba(190, 18, 60, 0.08);
+  --danger-border: rgba(190, 18, 60, 0.26);
+  --danger-text: var(--xan-rose-d);
 
-  --bar-from: #7b93ff;
-  --bar-to: #4560e8;
+  --bar-from: var(--xan-blue);
+  --bar-to: var(--xan-blue-deep);
   --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
 }
 
@@ -122,9 +191,9 @@ html, body, #root {
   margin: 0;
   min-height: 100%;
   min-width: 100%;
-  background:
-    radial-gradient(circle at top left, var(--bg-glow), transparent 28%),
-    linear-gradient(180deg, var(--bg) 0%, var(--bg-strong) 100%);
+  /* Fundo chapado: no guia Xan a profundidade vem do degrau de neutro
+     (base → painel → elevado), não de gradiente. */
+  background: var(--bg);
   color: var(--text);
 }
 
@@ -141,29 +210,55 @@ button {
   cursor: pointer;
 }
 
+/* Foco sempre visível e com área suficiente — o teclado é o caminho de quem
+   opera caixa o dia inteiro. */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 h1, h2, p {
   margin: 0;
 }
 
 h1 {
-  font-size: clamp(1.8rem, 3vw, 2.5rem);
-  line-height: 1.1;
+  font-size: clamp(1.35rem, 2.2vw, 1.75rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 h2 {
-  font-size: 1.1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 small {
   color: var(--muted);
 }
 
+/* Rótulo técnico: mono, caixa alta, entreletra larga. Marca a diferença entre
+   o que é dado e o que é etiqueta de dado. */
 .eyebrow {
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.2em;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* Algarismo é dado: largura fixa, para a coluna de dinheiro alinhar sozinha. */
+.mono,
+.data-table .ta-right,
+.stat-card strong,
+.cart-summary strong {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
 /* ---------------------------------------------------------------- Marca */
@@ -241,12 +336,15 @@ small {
 .nav-collapsed .sidebar { display: none; }
 .nav-collapsed .main-content { padding-top: 64px; }
 
+/* Área da marca: 64px de altura, a mesma do cabeçalho da página à direita —
+   as duas réguas horizontais se encontram na quina da sidebar. */
 .brand-box {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 10px 8px 50px;
+  gap: var(--space-3);
+  height: 64px;
+  padding: 0 var(--space-2) 0 50px;
 }
 
 .brand-box strong,
@@ -272,20 +370,25 @@ small {
   display: flex;
   align-items: center;
   gap: 10px;
+  font-size: 14px;
   color: var(--text-soft);
   text-decoration: none;
-  border-radius: 12px;
+  border-radius: var(--radius);
   border: 1px solid transparent;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  transition:
+    background 0.24s var(--ease-smooth),
+    border-color 0.24s var(--ease-smooth),
+    color 0.24s var(--ease-smooth);
 }
 
 .nav-icon {
   flex: 0 0 auto;
   opacity: 0.75;
+  transition: color 0.24s var(--ease-smooth), opacity 0.24s var(--ease-smooth);
 }
 
 .nav-item {
-  padding: 11px 14px;
+  padding: var(--space-3) 14px;
 }
 
 .nav-group {
@@ -300,16 +403,17 @@ small {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 8px 14px 4px;
+  padding: var(--space-2) 14px var(--space-1);
   background: none;
   border: 0;
-  font: inherit;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--muted);
   cursor: pointer;
+  transition: color 0.24s var(--ease-smooth);
 }
 
 .nav-group-title:hover {
@@ -322,22 +426,27 @@ small {
 }
 
 .nav-subitem {
-  padding: 10px 14px 10px 22px;
-  font-size: 0.94rem;
+  padding: var(--space-3) 14px var(--space-3) 22px;
 }
 
-.nav-item.active,
 .nav-item:hover,
-.nav-subitem.active,
 .nav-subitem:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
+  background: var(--hover-wash);
+  color: var(--text-strong);
+}
+
+/* Ativo é fundo lavado + rótulo forte; quem carrega a cor da marca é o ícone.
+   Uma linha inteira azul competiria com o botão de ação do cabeçalho. */
+.nav-item.active,
+.nav-subitem.active {
+  background: var(--chip-bg);
   color: var(--text-strong);
 }
 
 .nav-item.active .nav-icon,
 .nav-subitem.active .nav-icon {
   opacity: 1;
+  color: var(--primary);
 }
 
 /* "Nova venda" é a ação que o balcão repete o dia inteiro: ganha peso de
@@ -389,9 +498,16 @@ small {
   border-color: var(--accent-border);
 }
 
+.theme-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .theme-toggle span:last-child {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .user-box strong,
@@ -428,7 +544,8 @@ small {
 
 .main-content {
   flex: 1;
-  padding: 28px;
+  min-width: 0;
+  padding: var(--page-pad);
 }
 
 @media (max-width: 900px) {
@@ -467,32 +584,48 @@ small {
 }
 
 @media (max-width: 560px) {
-  .main-content { padding: 18px; }
+  :root { --page-pad: var(--space-4); }
   .brand-box { justify-content: center; }
 }
 
-/* ---------------------------------------------------------------- Botões */
+/* ---------------------------------------------------------------- Botões
+   O halo do botão primário é o único brilho da interface: existe para que a
+   ação da página seja achada sem procurar. */
 .primary-button, .ghost-button {
-  border-radius: 12px;
-  padding: 10px 16px;
-  transition: transform 0.18s ease, filter 0.18s ease;
+  border-radius: var(--radius);
+  padding: 10px var(--space-4);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition:
+    transform 0.32s var(--ease-smooth),
+    box-shadow 0.32s var(--ease-smooth),
+    background 0.32s var(--ease-smooth),
+    filter 0.32s var(--ease-smooth);
 }
 
 .primary-button {
-  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  background: var(--primary);
   color: var(--on-primary);
-  box-shadow: 0 12px 28px var(--primary-glow);
+  box-shadow: 0 0 20px var(--primary-glow);
 }
 
-.primary-button:hover, .ghost-button:hover {
+.primary-button:hover {
+  background: var(--primary-strong);
+  box-shadow: 0 0 28px var(--primary-glow);
   transform: translateY(-1px);
-  filter: brightness(1.03);
+}
+
+.ghost-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
 }
 
 .primary-button:disabled, .ghost-button:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: not-allowed;
   transform: none;
+  box-shadow: none;
 }
 
 .ghost-button {
@@ -517,40 +650,106 @@ small {
 
 .mini-button {
   padding: 6px 11px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--chip-bg);
   border: 1px solid var(--border);
   color: var(--text-soft);
-  font-size: 0.82rem;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.24s var(--ease-smooth), border-color 0.24s var(--ease-smooth), color 0.24s var(--ease-smooth);
 }
-.mini-button:hover { background: var(--accent-soft); border-color: var(--accent-border); }
+.mini-button:hover { background: var(--accent-soft); border-color: var(--accent-border); color: var(--text-strong); }
 .mini-button.danger { color: var(--danger-text); border-color: var(--danger-border); background: var(--danger-bg); }
 
+/* Sub-navegação (abas do financeiro, presets de relatório): etiqueta curta em
+   caixa alta, não botão. Só a ativa recebe a cor da marca. */
 .pill-button {
   padding: 9px 14px;
   border-radius: 999px;
-  background: var(--chip-bg);
-  border: 1px solid var(--border);
-  color: var(--text-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background 0.24s var(--ease-smooth), color 0.24s var(--ease-smooth), border-color 0.24s var(--ease-smooth);
 }
+.pill-button:hover { background: var(--hover-wash); color: var(--text-strong); }
 .pill-button.active {
-  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
-  color: var(--on-primary);
-  border-color: transparent;
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--primary-text);
 }
 
 /* ---------------------------------------------------------------- Formulários */
-.field { display: grid; gap: 6px; color: var(--muted); font-size: 0.88rem; margin-bottom: 12px; }
-.field span { font-size: 0.82rem; }
+.field { display: grid; gap: 6px; color: var(--muted); font-size: 13px; margin-bottom: var(--space-3); }
+.field span { font-size: 12px; font-weight: 600; }
 .field input, .field select, .field-input {
   width: 100%;
   background: var(--input-bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 11px 13px;
+  font-size: 14px;
   color: var(--text-strong);
+  transition: border-color 0.24s var(--ease-smooth), box-shadow 0.24s var(--ease-smooth);
+}
+.field input:focus, .field select:focus, .field-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .field-input { display: block; }
+.field input::placeholder, .field-input::placeholder { color: var(--muted); }
+
+/* Data e dinheiro digitados também são dados: campo em mono. */
+.field input[type='date'],
+.field-input[type='date'],
+.field input[inputmode='decimal'],
+.field-input[inputmode='decimal'] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Caixa de seleção própria: o controle nativo não aceita cor de marca e muda
+   de desenho em cada sistema. Quadrado #333 com o "check" azul. */
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: 5px;
+  background: var(--checkbox-bg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: background 0.24s var(--ease-smooth), border-color 0.24s var(--ease-smooth);
+}
+
+input[type='checkbox']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  transform: scale(0);
+  transform-origin: center;
+  transition: transform 0.24s var(--ease-smooth);
+  background: var(--primary);
+  /* Traço do "check" desenhado em máscara: acompanha a cor do token. */
+  clip-path: polygon(14% 46%, 0 60%, 39% 100%, 100% 18%, 86% 4%, 39% 72%);
+}
+
+input[type='checkbox']:checked { border-color: var(--accent-border); }
+input[type='checkbox']:checked::before { transform: scale(1); }
+input[type='checkbox']:indeterminate::before {
+  transform: scale(1);
+  clip-path: polygon(0 38%, 100% 38%, 100% 62%, 0 62%);
+}
+input[type='checkbox']:hover:not(:disabled) { border-color: var(--accent-border); }
+input[type='checkbox']:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .form-grid {
   display: grid;
@@ -618,38 +817,44 @@ small {
 .stat-card, .panel {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
 }
 
 .panel {
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .panel-header {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
-  gap: 18px;
-  margin-bottom: 22px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
 .stat-card {
-  padding: 18px 20px;
+  padding: var(--space-5);
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .stat-card span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
   color: var(--muted);
-  font-size: 0.8rem;
 }
 
 .stat-card strong {
-  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .list-rows {
@@ -676,19 +881,38 @@ small {
 .data-table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 14px;
 }
 
 .data-table th,
 .data-table td {
-  padding: 14px 12px;
+  padding: var(--space-3);
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
 
+/* Cabeçalho de tabela é etiqueta, não conteúdo: mono minúsculo em caixa alta,
+   fundo lavado para separar da primeira linha sem uma régua a mais. */
 .data-table th {
+  background: var(--surface-4);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
   color: var(--muted);
-  font-weight: 600;
+  white-space: nowrap;
 }
+
+/* 56px de linha: alto o bastante para o dedo no balcão e para a etiqueta de
+   situação caber inteira sem empurrar a tabela. */
+.data-table tbody tr {
+  height: 56px;
+  transition: background 0.24s var(--ease-smooth);
+}
+
+.data-table tbody tr:hover { background: var(--hover-wash); }
+.data-table tbody tr:last-child td { border-bottom: none; }
 
 /* Resumo de total — usado na frente de caixa e no detalhe da venda. */
 .cart-summary {
@@ -712,44 +936,110 @@ small {
   .stats-grid { grid-template-columns: 1fr; }
 }
 
+/* ---------------------------------------------------------------- Spotlight
+   Cartão que acende sob o cursor. O componente React (SpotlightCard.tsx) só
+   escreve --mouse-x/--mouse-y; a luz é este pseudo-elemento, que entra e sai
+   por opacidade — nada de repintar o fundo a cada mousemove.
+
+   Fica atrás do conteúdo (z-index 0 no ::before, 1 no conteúdo) e não recebe
+   ponteiro, então não atrapalha clique nenhum. */
+.spotlight {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease-smooth);
+  background: radial-gradient(
+    circle 240px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    var(--spotlight) 0%,
+    transparent 70%
+  );
+}
+
+.spotlight:hover::before,
+.spotlight:focus-within::before {
+  opacity: 1;
+}
+
+.spotlight > * {
+  position: relative;
+  z-index: 1;
+}
+
 /* ---------------------------------------------------------------- Feedback & tags */
 .muted { color: var(--muted); }
 .text-warning { color: var(--warning); }
 .text-success { color: var(--success-text); }
 
-.header-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.header-tags { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
+/* Etiqueta de situação: pílula de 24px com o ponto pulsando à esquerda. O ponto
+   é o que dá movimento à lista parada — e some sob prefers-reduced-motion. */
 .tag {
   display: inline-flex;
   align-items: center;
-  padding: 6px 12px;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
   background: var(--chip-bg);
   border: 1px solid var(--border);
   color: var(--text-soft);
 }
 .tag-success { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
 .tag-warning { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border); }
+.tag-danger { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger-border); }
+.tag-muted { background: var(--chip-bg); color: var(--muted); border-color: var(--border); }
 
-.error-message {
+.tag-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-dot 2s var(--ease-smooth) infinite;
+}
+
+/* Só o que ainda se move pulsa. Título pago ou cancelado é assunto encerrado:
+   ponto parado. */
+.tag-static .tag-dot { animation: none; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  50% { opacity: 0.55; box-shadow: 0 0 0 3px transparent; }
+}
+
+.error-message,
+.form-error {
   background: var(--danger-bg);
   border: 1px solid var(--danger-border);
-  border-radius: 12px;
-  padding: 14px 16px;
+  border-radius: var(--radius);
+  padding: 14px var(--space-4);
   color: var(--danger-text);
-  margin-bottom: 20px;
-  font-size: 0.9rem;
+  margin: 0 0 var(--space-5);
+  font-size: 13px;
 }
 
 .success-message {
   background: var(--success-bg);
   border: 1px solid var(--success-border);
-  border-radius: 12px;
-  padding: 14px 16px;
+  border-radius: var(--radius);
+  padding: 14px var(--space-4);
   color: var(--success-text);
-  margin-bottom: 20px;
-  font-size: 0.9rem;
+  margin: 0 0 var(--space-5);
+  font-size: 13px;
 }
 
 /* ---------------------------------------------------------------- Licença
@@ -757,24 +1047,42 @@ small {
    urgência: quem está a vencer vê um lembrete; quem já perdeu módulos vê que
    perdeu — mas em nenhum caso o caixa deixa de funcionar. */
 .license-banner {
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border-left: 3px solid currentColor;
-  font-size: 0.88rem;
+  font-size: 13px;
 }
 .license-a_vencer,
 .license-tolerancia {
-  color: #9c6717;
-  background: #f3e8d5;
+  color: var(--warning-text);
+  background: var(--warning-bg);
 }
 .license-expirada,
 .license-invalida,
 .license-ausente {
-  color: #97392c;
-  background: #f2ddd8;
+  color: var(--danger-text);
+  background: var(--danger-bg);
 }
 .license-desenvolvimento {
-  color: #0e6e6e;
-  background: #dbeae7;
+  color: var(--primary-text);
+  background: var(--accent-soft);
+}
+
+/* ---------------------------------------------------------------- Movimento
+   Quem pediu menos movimento no sistema não perde informação nenhuma aqui: o
+   ponto de situação continua lá, parado, e o spotlight simplesmente não acende.
+   Nada do que anima carrega significado que o estado parado já não conte. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spotlight::before { display: none; }
+  .tag-dot { animation: none; opacity: 1; }
 }

@@ -1,10 +1,14 @@
 import './FinancePage.css';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
+import { SpotlightCard } from '../components/SpotlightCard';
+import { StatusBadge, type BadgeTone } from '../components/StatusBadge';
+import { FINANCE_ICONS, type FinanceIcon } from '../components/finance-icons';
 import {
   customersApi,
   financeApi,
+  type Aging,
   type CashflowReport,
   type Payable,
   type PayableRecurrence,
@@ -13,6 +17,7 @@ import {
   type Supplier,
   type TitleStatus,
 } from '../lib/api-client';
+import { downloadText, toCsv } from '../lib/download';
 import {
   brl,
   dateInput,
@@ -68,11 +73,11 @@ const RECURRENCES: Array<{ value: PayableRecurrence; label: string }> = [
   { value: 'ANUAL', label: 'Anual' },
 ];
 
-const STATUS_TAG: Record<TitleStatus, string> = {
-  ABERTO: '',
-  PARCIAL: 'tag-warning',
-  PAGO: 'tag-success',
-  CANCELADO: 'tag-muted',
+const STATUS_TONE: Record<TitleStatus, BadgeTone> = {
+  ABERTO: 'neutral',
+  PARCIAL: 'warning',
+  PAGO: 'success',
+  CANCELADO: 'neutral',
 };
 
 const STATUS_LABEL: Record<TitleStatus, string> = {
@@ -82,8 +87,210 @@ const STATUS_LABEL: Record<TitleStatus, string> = {
   CANCELADO: 'Cancelado',
 };
 
+const isOpen = (t: { status: TitleStatus }) => t.status === 'ABERTO' || t.status === 'PARCIAL';
+
 const isOverdue = (t: { status: TitleStatus; dueDate: string }) =>
-  (t.status === 'ABERTO' || t.status === 'PARCIAL') && new Date(t.dueDate) < new Date();
+  isOpen(t) && new Date(t.dueDate) < new Date();
+
+/**
+ * Situação do título como etiqueta.
+ *
+ * "Vencido" não é um status do banco — é ABERTO/PARCIAL com a data já passada.
+ * Quem está na lista precisa ver isso antes de ler a coluna de vencimento, e é
+ * a única situação que ganha o tom de alerta.
+ */
+function TitleStatusBadge({
+  title,
+  overdueLabel,
+}: {
+  title: { status: TitleStatus; dueDate: string };
+  overdueLabel: string;
+}) {
+  if (isOverdue(title)) return <StatusBadge tone="danger" label={overdueLabel} live />;
+  return (
+    <StatusBadge
+      tone={STATUS_TONE[title.status]}
+      label={STATUS_LABEL[title.status]}
+      live={isOpen(title)}
+    />
+  );
+}
+
+// --------------------------------------------------------- Faixa de números
+
+type Metric = {
+  key: string;
+  icon: FinanceIcon;
+  tone: 'blue' | 'rose' | 'amber' | 'emerald';
+  label: string;
+  value: string;
+  hint?: string;
+};
+
+/**
+ * Faixa de indicadores acima da lista.
+ *
+ * Quatro leituras da carteira inteira e, no fim, um cartão em destaque com o
+ * total do recorte que está na tela — ou da seleção, quando existe uma. É esse
+ * quinto cartão que amarra a faixa à tabela: os quatro primeiros não mudam com
+ * o filtro, ele muda.
+ */
+function MetricStrip({ metrics, hero }: { metrics: Metric[]; hero: Metric }) {
+  const HeroIcon = FINANCE_ICONS[hero.icon];
+  return (
+    <div className="metric-strip">
+      {metrics.map((m) => {
+        const Icon = FINANCE_ICONS[m.icon];
+        return (
+          <SpotlightCard key={m.key} className={`metric-card metric-${m.tone}`}>
+            <span className="metric-icon" aria-hidden="true">
+              <Icon />
+            </span>
+            <span className="metric-label">{m.label}</span>
+            <strong className="metric-value">{m.value}</strong>
+            {m.hint ? <small className="metric-hint">{m.hint}</small> : null}
+          </SpotlightCard>
+        );
+      })}
+      <article className="metric-card metric-hero">
+        <span className="metric-icon" aria-hidden="true">
+          <HeroIcon />
+        </span>
+        <span className="metric-label">{hero.label}</span>
+        <strong className="metric-value">{hero.value}</strong>
+        {hero.hint ? <small className="metric-hint">{hero.hint}</small> : null}
+      </article>
+    </div>
+  );
+}
+
+function agingMetrics(aging: Aging, extra: Metric): Metric[] {
+  return [
+    {
+      key: 'vencido',
+      icon: 'vencido',
+      tone: 'rose',
+      label: 'Vencido',
+      value: brl(aging.vencido),
+    },
+    {
+      key: 'ate7',
+      icon: 'prazo',
+      tone: 'amber',
+      label: 'Vence em 7 dias',
+      value: brl(aging.ate7),
+    },
+    {
+      key: 'ate30',
+      icon: 'carteira',
+      tone: 'emerald',
+      label: 'Vence em 30 dias',
+      value: brl(aging.ate30),
+    },
+    extra,
+  ];
+}
+
+// -------------------------------------------------------------- Seleção
+
+/**
+ * Seleção de linhas da tabela.
+ *
+ * A lista muda debaixo da seleção o tempo todo — o filtro troca, a busca
+ * corta, uma baixa some com o título. Por isso o que vale é sempre o cruzamento
+ * do que foi marcado com o que ainda está na tela: um id que saiu da lista não
+ * pode continuar contando na barra de ações nem entrar numa ação em massa.
+ */
+function useRowSelection<T extends { id: string }>(rows: T[]) {
+  const [marked, setMarked] = useState<string[]>([]);
+
+  const selected = useMemo(() => {
+    const onScreen = new Set(rows.map((r) => r.id));
+    return marked.filter((id) => onScreen.has(id));
+  }, [marked, rows]);
+
+  const selectedRows = useMemo(() => {
+    const chosen = new Set(selected);
+    return rows.filter((r) => chosen.has(r.id));
+  }, [rows, selected]);
+
+  return {
+    selected,
+    selectedRows,
+    isSelected: (id: string) => selected.includes(id),
+    toggle: (id: string) =>
+      setMarked((current) =>
+        current.includes(id) ? current.filter((i) => i !== id) : [...current, id],
+      ),
+    toggleAll: () =>
+      setMarked(selected.length === rows.length ? [] : rows.map((r) => r.id)),
+    clear: () => setMarked([]),
+    allSelected: rows.length > 0 && selected.length === rows.length,
+    someSelected: selected.length > 0 && selected.length < rows.length,
+  };
+}
+
+/** Caixa do cabeçalho: marcada, vazia ou "parte da lista" (traço). */
+function SelectAllBox({
+  allSelected,
+  someSelected,
+  onToggle,
+  disabled,
+}: {
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggle: () => void;
+  disabled: boolean;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  // `indeterminate` não existe como atributo HTML: só se escreve na propriedade.
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = someSelected;
+  }, [someSelected]);
+
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={allSelected}
+      disabled={disabled}
+      onChange={onToggle}
+      aria-label={allSelected ? 'Desmarcar todos' : 'Marcar todos'}
+    />
+  );
+}
+
+/**
+ * Barra de ações em massa.
+ *
+ * Aparece presa acima da tabela quando existe seleção e some quando não existe:
+ * uma barra sempre visível com "0 selecionados" é uma linha de ruído que o
+ * operador aprende a ignorar.
+ */
+function BulkBar({
+  count,
+  children,
+  onClear,
+}: {
+  count: number;
+  children: ReactNode;
+  onClear: () => void;
+}) {
+  if (count === 0) return null;
+  return (
+    <div className="bulk-bar" role="status">
+      <strong className="bulk-count">
+        {count} <span>selecionado{count > 1 ? 's' : ''}</span>
+      </strong>
+      <div className="bulk-actions">
+        {children}
+        <button type="button" className="bulk-action" onClick={onClear}>
+          Limpar
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function Kpi({
   label,
@@ -338,13 +545,26 @@ function SettleForm({
 
 // --------------------------------------------------------------- A receber
 
-function Receber({ canManage }: { canManage: boolean }) {
+function Receber({
+  canManage,
+  search,
+  creating,
+  onCloseCreate,
+  aging,
+  carteira,
+}: {
+  canManage: boolean;
+  search: string;
+  creating: boolean;
+  onCloseCreate: () => void;
+  aging: Aging | undefined;
+  carteira: { totalOpen: number; titles: number; customers: number } | undefined;
+}) {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'aberto' | 'vencido' | 'todos'>('aberto');
-  const [search, setSearch] = useState('');
   const [settling, setSettling] = useState<Receivable | null>(null);
-  const [creating, setCreating] = useState(false);
   const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
 
   const titles = useQuery({
     queryKey: ['finance', 'receivables', filter, search],
@@ -355,6 +575,9 @@ function Receber({ canManage }: { canManage: boolean }) {
         search: search.trim() || undefined,
       }),
   });
+
+  const rows = useMemo(() => titles.data ?? [], [titles.data]);
+  const selection = useRowSelection(rows);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['finance'] });
@@ -379,123 +602,232 @@ function Receber({ canManage }: { canManage: boolean }) {
     onError: (e: Error) => setErro(e.message),
   });
 
-  const totalAberto = useMemo(
-    () =>
-      (titles.data ?? [])
-        .filter((t) => t.status === 'ABERTO' || t.status === 'PARCIAL')
-        .reduce((acc, t) => acc + (t.amount - t.paidAmount), 0),
-    [titles.data],
-  );
+  /**
+   * Cancelamento em massa.
+   *
+   * Só entram os títulos que ainda podem ser cancelados: um pago ou já
+   * cancelado na seleção seria recusado pelo servidor e o operador acharia que
+   * a operação inteira falhou. O motivo é um só para o lote — é o que vai para
+   * a trilha de auditoria de cada título.
+   */
+  const cancelarSelecionados = async () => {
+    const alvos = selection.selectedRows.filter(isOpen);
+    if (alvos.length === 0) {
+      setErro('Nenhum título selecionado pode ser cancelado: pago ou já cancelado.');
+      return;
+    }
+    const reason = prompt(`Motivo do cancelamento de ${alvos.length} título(s):`);
+    if (!reason || reason.trim().length < 3) return;
+
+    setErro('');
+    setAviso('');
+    const falhas: number[] = [];
+    for (const t of alvos) {
+      try {
+        await financeApi.cancelReceivable(t.id, reason.trim());
+      } catch {
+        falhas.push(t.number);
+      }
+    }
+    selection.clear();
+    invalidate();
+    if (falhas.length > 0) {
+      setErro(
+        `${alvos.length - falhas.length} de ${alvos.length} cancelados. ` +
+          `Falharam: ${falhas.join(', ')}.`,
+      );
+    } else {
+      setAviso(`${alvos.length} título(s) cancelado(s).`);
+    }
+  };
+
+  const exportarSelecionados = () => {
+    const linhas: (string | number)[][] = [
+      ['Numero', 'Cliente', 'Descricao', 'Parcela', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Situacao'],
+      ...selection.selectedRows.map((t) => [
+        t.number,
+        t.customer.name,
+        t.description,
+        `${t.installment}/${t.installments}`,
+        dateOnly(t.dueDate),
+        num(t.amount, 2),
+        num(t.paidAmount, 2),
+        num(t.amount - t.paidAmount, 2),
+        isOverdue(t) ? 'Vencido' : STATUS_LABEL[t.status],
+      ]),
+    ];
+    downloadText(`a-receber-${dateInput()}.csv`, toCsv(linhas));
+    setAviso(`${selection.selected.length} título(s) exportado(s).`);
+  };
+
+  const saldoDe = (list: Receivable[]) =>
+    list.filter(isOpen).reduce((acc, t) => acc + (t.amount - t.paidAmount), 0);
+
+  const temSelecao = selection.selected.length > 0;
+  const hero: Metric = {
+    key: 'recorte',
+    icon: 'recorte',
+    tone: 'blue',
+    label: temSelecao ? 'Selecionados' : 'Nesta lista',
+    value: brl(saldoDe(temSelecao ? selection.selectedRows : rows)),
+    hint: temSelecao
+      ? `${selection.selected.length} de ${rows.length} título(s)`
+      : `${rows.length} título(s) em aberto no recorte`,
+  };
 
   return (
-    <section className="panel">
-      <div className="toolbar">
-        <div className="report-presets">
-          {(['aberto', 'vencido', 'todos'] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={`pill-button ${filter === f ? 'active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'aberto' ? 'Em aberto' : f === 'vencido' ? 'Vencidos' : 'Todos'}
-            </button>
-          ))}
-        </div>
-        <input
-          className="field-input"
-          placeholder="Buscar por cliente ou descrição"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {canManage ? (
-          <button className="primary-button" onClick={() => setCreating((c) => !c)}>
-            {creating ? 'Fechar' : 'Novo título'}
-          </button>
-        ) : null}
-      </div>
-
-      {erro ? <p className="form-error">{erro}</p> : null}
-
-      {creating ? (
-        <NovoTitulo
-          onDone={() => {
-            setCreating(false);
-            invalidate();
-          }}
-          onError={setErro}
+    <>
+      {aging && carteira ? (
+        <MetricStrip
+          metrics={agingMetrics(aging, {
+            key: 'clientes',
+            icon: 'clientes',
+            tone: 'emerald',
+            label: 'Clientes devendo',
+            value: num(carteira.customers),
+            hint: `${num(carteira.titles)} título(s) · ${brl(carteira.totalOpen)}`,
+          })}
+          hero={hero}
         />
       ) : null}
 
-      <p className="muted finance-note">
-        Saldo em aberto nesta lista: <strong>{brl(totalAberto)}</strong>
-      </p>
+      <section className="panel list-panel">
+        <div className="list-toolbar">
+          <div className="report-presets" role="group" aria-label="Filtrar por situação">
+            {(['aberto', 'vencido', 'todos'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                className={`pill-button ${filter === f ? 'active' : ''}`}
+                aria-pressed={filter === f}
+                onClick={() => setFilter(f)}
+              >
+                {f === 'aberto' ? 'Em aberto' : f === 'vencido' ? 'Vencidos' : 'Todos'}
+              </button>
+            ))}
+          </div>
+          {titles.isFetching ? <small className="muted">Atualizando…</small> : null}
+        </div>
 
-      <div className="table-scroll">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Cliente</th>
-              <th>Descrição</th>
-              <th>Vencimento</th>
-              <th className="ta-right">Valor</th>
-              <th className="ta-right">Saldo</th>
-              <th>Situação</th>
-              {canManage ? <th /> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {(titles.data ?? []).map((t) => {
-              const saldo = t.amount - t.paidAmount;
-              return (
-                <tr key={t.id} className={isOverdue(t) ? 'row-late' : ''}>
-                  <td>{t.number}</td>
-                  <td>{t.customer.name}</td>
-                  <td>{t.description}</td>
-                  <td>{dateOnly(t.dueDate)}</td>
-                  <td className="ta-right">{brl(t.amount)}</td>
-                  <td className="ta-right">{brl(saldo)}</td>
-                  <td>
-                    <span className={`tag ${STATUS_TAG[t.status]}`}>
-                      {isOverdue(t) ? 'Vencido' : STATUS_LABEL[t.status]}
-                    </span>
-                  </td>
-                  {canManage ? (
-                    <td className="ta-right">
-                      {t.status === 'ABERTO' || t.status === 'PARCIAL' ? (
-                        <>
-                          <button className="mini-button" onClick={() => setSettling(t)}>
-                            Receber
-                          </button>
-                          <button
-                            className="mini-button"
-                            onClick={() => {
-                              const reason = prompt('Motivo do cancelamento do título:');
-                              if (reason && reason.trim().length >= 3) {
-                                cancel.mutate({ id: t.id, reason: reason.trim() });
-                              }
-                            }}
-                          >
-                            Cancelar
-                          </button>
-                        </>
+        {erro ? <p className="form-error">{erro}</p> : null}
+        {aviso ? <p className="success-message">{aviso}</p> : null}
+
+        {creating ? (
+          <NovoTitulo
+            onDone={() => {
+              onCloseCreate();
+              invalidate();
+            }}
+            onError={setErro}
+          />
+        ) : null}
+
+        <BulkBar count={selection.selected.length} onClear={selection.clear}>
+          <button type="button" className="bulk-action" onClick={exportarSelecionados}>
+            Exportar CSV
+          </button>
+          {canManage ? (
+            <button type="button" className="bulk-action danger" onClick={cancelarSelecionados}>
+              Cancelar títulos
+            </button>
+          ) : null}
+        </BulkBar>
+
+        <div className="table-scroll">
+          <table className="data-table invoice-table">
+            <thead>
+              <tr>
+                <th className="col-check">
+                  <SelectAllBox
+                    allSelected={selection.allSelected}
+                    someSelected={selection.someSelected}
+                    onToggle={selection.toggleAll}
+                    disabled={rows.length === 0}
+                  />
+                </th>
+                <th>Título</th>
+                <th>Cliente</th>
+                <th>Descrição</th>
+                <th>Vencimento</th>
+                <th className="ta-right">Valor</th>
+                <th className="ta-right">Saldo</th>
+                <th>Situação</th>
+                {canManage ? <th className="ta-right">Ações</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((t) => {
+                const saldo = t.amount - t.paidAmount;
+                const marcado = selection.isSelected(t.id);
+                return (
+                  <tr
+                    key={t.id}
+                    className={[isOverdue(t) ? 'row-late' : '', marcado ? 'row-selected' : '']
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <td className="col-check">
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={() => selection.toggle(t.id)}
+                        aria-label={`Selecionar título ${t.number} de ${t.customer.name}`}
+                      />
+                    </td>
+                    <td>
+                      <span className="cell-id">#{t.number}</span>
+                      {t.installments > 1 ? (
+                        <small className="cell-sub">
+                          {t.installment}/{t.installments}
+                        </small>
                       ) : null}
                     </td>
-                  ) : null}
+                    <td className="cell-name">{t.customer.name}</td>
+                    <td className="cell-desc">{t.description}</td>
+                    <td className="cell-date">{dateOnly(t.dueDate)}</td>
+                    <td className="ta-right">{brl(t.amount)}</td>
+                    <td className="ta-right cell-amount">{brl(saldo)}</td>
+                    <td>
+                      <TitleStatusBadge title={t} overdueLabel="Vencido" />
+                    </td>
+                    {canManage ? (
+                      <td className="ta-right">
+                        {isOpen(t) ? (
+                          <div className="row-actions">
+                            <button className="mini-button" onClick={() => setSettling(t)}>
+                              Receber
+                            </button>
+                            <button
+                              className="mini-button danger"
+                              onClick={() => {
+                                const reason = prompt('Motivo do cancelamento do título:');
+                                if (reason && reason.trim().length >= 3) {
+                                  cancel.mutate({ id: t.id, reason: reason.trim() });
+                                }
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
+              {titles.data && rows.length === 0 ? (
+                <tr>
+                  <td colSpan={canManage ? 9 : 8} className="table-empty muted">
+                    {search
+                      ? `Nenhum título para "${search}" nesta faixa.`
+                      : 'Nenhum título nesta faixa.'}
+                  </td>
                 </tr>
-              );
-            })}
-            {titles.data && titles.data.length === 0 ? (
-              <tr>
-                <td colSpan={canManage ? 8 : 7} className="muted">
-                  Nenhum título nesta faixa.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {settling ? (
         <div className="panel settle-panel">
@@ -512,7 +844,7 @@ function Receber({ canManage }: { canManage: boolean }) {
           />
         </div>
       ) : null}
-    </section>
+    </>
   );
 }
 
@@ -635,13 +967,26 @@ function NovoTitulo({
 
 // ----------------------------------------------------------------- A pagar
 
-function Pagar({ canManage }: { canManage: boolean }) {
+function Pagar({
+  canManage,
+  search,
+  creating,
+  onCloseCreate,
+  aging,
+  carteira,
+}: {
+  canManage: boolean;
+  search: string;
+  creating: boolean;
+  onCloseCreate: () => void;
+  aging: Aging | undefined;
+  carteira: { totalOpen: number; titles: number } | undefined;
+}) {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'aberto' | 'vencido' | 'todos'>('aberto');
-  const [search, setSearch] = useState('');
   const [settling, setSettling] = useState<Payable | null>(null);
-  const [creating, setCreating] = useState(false);
   const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
 
   const titles = useQuery({
     queryKey: ['finance', 'payables', filter, search],
@@ -676,115 +1021,194 @@ function Pagar({ canManage }: { canManage: boolean }) {
     onError: (e: Error) => setErro(e.message),
   });
 
+  const rows = useMemo(() => titles.data ?? [], [titles.data]);
+  const selection = useRowSelection(rows);
+
+  const exportarSelecionados = () => {
+    const linhas: (string | number)[][] = [
+      ['Numero', 'Descricao', 'Categoria', 'Fornecedor', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Situacao'],
+      ...selection.selectedRows.map((t) => [
+        t.number,
+        t.description,
+        t.category,
+        t.supplier?.name ?? '',
+        dateOnly(t.dueDate),
+        num(t.amount, 2),
+        num(t.paidAmount, 2),
+        num(t.amount - t.paidAmount, 2),
+        isOverdue(t) ? 'Vencida' : STATUS_LABEL[t.status],
+      ]),
+    ];
+    downloadText(`a-pagar-${dateInput()}.csv`, toCsv(linhas));
+    setAviso(`${selection.selected.length} despesa(s) exportada(s).`);
+  };
+
+  const saldoDe = (list: Payable[]) =>
+    list.filter(isOpen).reduce((acc, t) => acc + (t.amount - t.paidAmount), 0);
+
+  const temSelecao = selection.selected.length > 0;
+  const hero: Metric = {
+    key: 'recorte',
+    icon: 'recorte',
+    tone: 'blue',
+    label: temSelecao ? 'Selecionadas' : 'Nesta lista',
+    value: brl(saldoDe(temSelecao ? selection.selectedRows : rows)),
+    hint: temSelecao
+      ? `${selection.selected.length} de ${rows.length} despesa(s)`
+      : `${rows.length} despesa(s) em aberto no recorte`,
+  };
+
   return (
-    <section className="panel">
-      <div className="toolbar">
-        <div className="report-presets">
-          {(['aberto', 'vencido', 'todos'] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={`pill-button ${filter === f ? 'active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'aberto' ? 'Em aberto' : f === 'vencido' ? 'Vencidas' : 'Todas'}
-            </button>
-          ))}
-        </div>
-        <input
-          className="field-input"
-          placeholder="Buscar por descrição, categoria ou fornecedor"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {canManage ? (
-          <button className="primary-button" onClick={() => setCreating((c) => !c)}>
-            {creating ? 'Fechar' : 'Nova despesa'}
-          </button>
-        ) : null}
-      </div>
-
-      {erro ? <p className="form-error">{erro}</p> : null}
-
-      {creating ? (
-        <NovaDespesa
-          onDone={() => {
-            setCreating(false);
-            invalidate();
-          }}
-          onError={setErro}
+    <>
+      {aging && carteira ? (
+        <MetricStrip
+          metrics={agingMetrics(aging, {
+            key: 'carteira',
+            icon: 'carteira',
+            tone: 'emerald',
+            label: 'Total em aberto',
+            value: brl(carteira.totalOpen),
+            hint: `${num(carteira.titles)} despesa(s)`,
+          })}
+          hero={hero}
         />
       ) : null}
 
-      <div className="table-scroll">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Descrição</th>
-              <th>Categoria</th>
-              <th>Fornecedor</th>
-              <th>Vencimento</th>
-              <th className="ta-right">Valor</th>
-              <th className="ta-right">Saldo</th>
-              <th>Situação</th>
-              {canManage ? <th /> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {(titles.data ?? []).map((t) => (
-              <tr key={t.id} className={isOverdue(t) ? 'row-late' : ''}>
-                <td>{t.number}</td>
-                <td>
-                  {t.description}
-                  {t.recurrence !== 'NENHUMA' ? (
-                    <small className="muted"> · {RECURRENCES.find((r) => r.value === t.recurrence)?.label}</small>
-                  ) : null}
-                </td>
-                <td>{t.category}</td>
-                <td>{t.supplier?.name ?? '—'}</td>
-                <td>{dateOnly(t.dueDate)}</td>
-                <td className="ta-right">{brl(t.amount)}</td>
-                <td className="ta-right">{brl(t.amount - t.paidAmount)}</td>
-                <td>
-                  <span className={`tag ${STATUS_TAG[t.status]}`}>
-                    {isOverdue(t) ? 'Vencida' : STATUS_LABEL[t.status]}
-                  </span>
-                </td>
-                {canManage ? (
-                  <td className="ta-right">
-                    {t.status === 'ABERTO' || t.status === 'PARCIAL' ? (
-                      <>
-                        <button className="mini-button" onClick={() => setSettling(t)}>
-                          Pagar
-                        </button>
-                        <button
-                          className="mini-button"
-                          onClick={() => {
-                            const reason = prompt('Motivo do cancelamento da despesa:');
-                            if (reason && reason.trim().length >= 3) {
-                              cancel.mutate({ id: t.id, reason: reason.trim() });
-                            }
-                          }}
-                        >
-                          Cancelar
-                        </button>
-                      </>
-                    ) : null}
-                  </td>
-                ) : null}
-              </tr>
+      <section className="panel list-panel">
+        <div className="list-toolbar">
+          <div className="report-presets" role="group" aria-label="Filtrar por situação">
+            {(['aberto', 'vencido', 'todos'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                className={`pill-button ${filter === f ? 'active' : ''}`}
+                aria-pressed={filter === f}
+                onClick={() => setFilter(f)}
+              >
+                {f === 'aberto' ? 'Em aberto' : f === 'vencido' ? 'Vencidas' : 'Todas'}
+              </button>
             ))}
-            {titles.data && titles.data.length === 0 ? (
+          </div>
+          {titles.isFetching ? <small className="muted">Atualizando…</small> : null}
+        </div>
+
+        {erro ? <p className="form-error">{erro}</p> : null}
+        {aviso ? <p className="success-message">{aviso}</p> : null}
+
+        {creating ? (
+          <NovaDespesa
+            onDone={() => {
+              onCloseCreate();
+              invalidate();
+            }}
+            onError={setErro}
+          />
+        ) : null}
+
+        <BulkBar count={selection.selected.length} onClear={selection.clear}>
+          <button type="button" className="bulk-action" onClick={exportarSelecionados}>
+            Exportar CSV
+          </button>
+        </BulkBar>
+
+        <div className="table-scroll">
+          <table className="data-table invoice-table">
+            <thead>
               <tr>
-                <td colSpan={canManage ? 9 : 8} className="muted">
-                  Nenhuma despesa nesta faixa.
-                </td>
+                <th className="col-check">
+                  <SelectAllBox
+                    allSelected={selection.allSelected}
+                    someSelected={selection.someSelected}
+                    onToggle={selection.toggleAll}
+                    disabled={rows.length === 0}
+                  />
+                </th>
+                <th>Despesa</th>
+                <th>Descrição</th>
+                <th>Categoria</th>
+                <th>Fornecedor</th>
+                <th>Vencimento</th>
+                <th className="ta-right">Valor</th>
+                <th className="ta-right">Saldo</th>
+                <th>Situação</th>
+                {canManage ? <th className="ta-right">Ações</th> : null}
               </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.map((t) => {
+                const marcado = selection.isSelected(t.id);
+                return (
+                  <tr
+                    key={t.id}
+                    className={[isOverdue(t) ? 'row-late' : '', marcado ? 'row-selected' : '']
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <td className="col-check">
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={() => selection.toggle(t.id)}
+                        aria-label={`Selecionar despesa ${t.number} — ${t.description}`}
+                      />
+                    </td>
+                    <td>
+                      <span className="cell-id">#{t.number}</span>
+                    </td>
+                    <td className="cell-desc">
+                      {t.description}
+                      {t.recurrence !== 'NENHUMA' ? (
+                        <small className="cell-sub">
+                          {RECURRENCES.find((r) => r.value === t.recurrence)?.label}
+                        </small>
+                      ) : null}
+                    </td>
+                    <td className="cell-name">{t.category}</td>
+                    <td className="cell-name">{t.supplier?.name ?? '—'}</td>
+                    <td className="cell-date">{dateOnly(t.dueDate)}</td>
+                    <td className="ta-right">{brl(t.amount)}</td>
+                    <td className="ta-right cell-amount">{brl(t.amount - t.paidAmount)}</td>
+                    <td>
+                      <TitleStatusBadge title={t} overdueLabel="Vencida" />
+                    </td>
+                    {canManage ? (
+                      <td className="ta-right">
+                        {isOpen(t) ? (
+                          <div className="row-actions">
+                            <button className="mini-button" onClick={() => setSettling(t)}>
+                              Pagar
+                            </button>
+                            <button
+                              className="mini-button danger"
+                              onClick={() => {
+                                const reason = prompt('Motivo do cancelamento da despesa:');
+                                if (reason && reason.trim().length >= 3) {
+                                  cancel.mutate({ id: t.id, reason: reason.trim() });
+                                }
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
+              {titles.data && rows.length === 0 ? (
+                <tr>
+                  <td colSpan={canManage ? 10 : 9} className="table-empty muted">
+                    {search
+                      ? `Nenhuma despesa para "${search}" nesta faixa.`
+                      : 'Nenhuma despesa nesta faixa.'}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {settling ? (
         <div className="panel settle-panel">
@@ -806,7 +1230,7 @@ function Pagar({ canManage }: { canManage: boolean }) {
           />
         </div>
       ) : null}
-    </section>
+    </>
   );
 }
 
@@ -942,9 +1366,18 @@ function NovaDespesa({
 
 // ----------------------------------------------------------- Fornecedores
 
-function Fornecedores({ canManage }: { canManage: boolean }) {
+function Fornecedores({
+  canManage,
+  search,
+  creating,
+  onCloseCreate,
+}: {
+  canManage: boolean;
+  search: string;
+  creating: boolean;
+  onCloseCreate: () => void;
+}) {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
   const [form, setForm] = useState<Partial<Supplier> | null>(null);
   const [erro, setErro] = useState('');
 
@@ -953,13 +1386,24 @@ function Fornecedores({ canManage }: { canManage: boolean }) {
     queryFn: () => financeApi.suppliers(search || undefined),
   });
 
+  // O "Novo fornecedor" mora no cabeçalho da página, junto com a busca: aqui
+  // ele só abre o formulário em branco. Editar continua sendo pela linha.
+  useEffect(() => {
+    if (creating) setForm((current) => current ?? { name: '' });
+  }, [creating]);
+
+  const closeForm = () => {
+    setForm(null);
+    onCloseCreate();
+  };
+
   const save = useMutation({
     mutationFn: () =>
       form?.id
         ? financeApi.updateSupplier(form.id, form)
         : financeApi.createSupplier(form ?? {}),
     onSuccess: () => {
-      setForm(null);
+      closeForm();
       setErro('');
       queryClient.invalidateQueries({ queryKey: ['finance', 'suppliers'] });
     },
@@ -967,21 +1411,7 @@ function Fornecedores({ canManage }: { canManage: boolean }) {
   });
 
   return (
-    <section className="panel">
-      <div className="toolbar">
-        <input
-          className="field-input"
-          placeholder="Buscar fornecedor"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {canManage ? (
-          <button className="primary-button" onClick={() => setForm({ name: '' })}>
-            Novo fornecedor
-          </button>
-        ) : null}
-      </div>
-
+    <section className="panel list-panel">
       {erro ? <p className="form-error">{erro}</p> : null}
 
       {form ? (
@@ -1025,7 +1455,7 @@ function Fornecedores({ canManage }: { canManage: boolean }) {
             />
           </label>
           <div className="settle-actions">
-            <button className="ghost-button" type="button" onClick={() => setForm(null)}>
+            <button className="ghost-button" type="button" onClick={closeForm}>
               Cancelar
             </button>
             <button
@@ -1040,36 +1470,40 @@ function Fornecedores({ canManage }: { canManage: boolean }) {
       ) : null}
 
       <div className="table-scroll">
-        <table className="data-table">
+        <table className="data-table invoice-table">
           <thead>
             <tr>
               <th>Nome</th>
               <th>Documento</th>
               <th>Telefone</th>
               <th>E-mail</th>
-              {canManage ? <th /> : null}
+              {canManage ? <th className="ta-right">Ações</th> : null}
             </tr>
           </thead>
           <tbody>
             {(list.data ?? []).map((s) => (
               <tr key={s.id}>
-                <td>{s.name}</td>
-                <td>{s.document ?? '—'}</td>
-                <td>{s.phone ?? '—'}</td>
+                <td className="cell-name">{s.name}</td>
+                <td className="cell-date">{s.document ?? '—'}</td>
+                <td className="cell-date">{s.phone ?? '—'}</td>
                 <td>{s.email ?? '—'}</td>
                 {canManage ? (
                   <td className="ta-right">
-                    <button className="mini-button" onClick={() => setForm(s)}>
-                      Editar
-                    </button>
+                    <div className="row-actions">
+                      <button className="mini-button" onClick={() => setForm(s)}>
+                        Editar
+                      </button>
+                    </div>
                   </td>
                 ) : null}
               </tr>
             ))}
             {list.data && list.data.length === 0 ? (
               <tr>
-                <td colSpan={canManage ? 5 : 4} className="muted">
-                  Nenhum fornecedor cadastrado.
+                <td colSpan={canManage ? 5 : 4} className="table-empty muted">
+                  {search
+                    ? `Nenhum fornecedor para "${search}".`
+                    : 'Nenhum fornecedor cadastrado.'}
                 </td>
               </tr>
             ) : null}
@@ -1435,6 +1869,33 @@ function Fechamento({ canManage }: { canManage: boolean }) {
   );
 }
 
+/**
+ * Busca e ação principal de cada aba.
+ *
+ * As duas moram no cabeçalho, não dentro da lista — assim o operador acha o
+ * campo de busca sempre no mesmo lugar, em vez de caçá-lo em cada aba. Onde a
+ * busca não faz sentido (painel, fechamento do dia), o campo não aparece: um
+ * campo inerte na tela é pior que campo nenhum.
+ */
+/** Curto para caber nos 224px do campo; o rótulo acessível abaixo é o completo. */
+const SEARCH_HINT: Partial<Record<Tab, string>> = {
+  receber: 'Buscar cliente…',
+  pagar: 'Buscar despesa…',
+  fornecedores: 'Buscar fornecedor…',
+};
+
+const SEARCH_LABEL: Partial<Record<Tab, string>> = {
+  receber: 'Buscar título por cliente ou descrição',
+  pagar: 'Buscar despesa por descrição, categoria ou fornecedor',
+  fornecedores: 'Buscar fornecedor por nome',
+};
+
+const CTA_LABEL: Partial<Record<Tab, string>> = {
+  receber: 'Novo título',
+  pagar: 'Nova despesa',
+  fornecedores: 'Novo fornecedor',
+};
+
 export function FinancePage() {
   const permissions = useAuthStore((s) => s.permissions);
   const canReceivables = permissions.includes('finance.receivables.manage');
@@ -1442,6 +1903,8 @@ export function FinancePage() {
   const canCloseDay = permissions.includes('finance.dailyClosing.manage');
 
   const [tab, setTab] = useState<Tab>('painel');
+  const [search, setSearch] = useState('');
+  const [creating, setCreating] = useState(false);
   const [from, setFrom] = useState(() => {
     const d = new Date();
     return dateInput(new Date(d.getFullYear(), d.getMonth(), 1));
@@ -1455,38 +1918,66 @@ export function FinancePage() {
     enabled: tab === 'painel',
   });
 
+  // Trocar de aba zera a busca e fecha o formulário: "aluguel" digitado em
+  // A pagar não quer dizer nada em Fornecedores, e o formulário aberto de uma
+  // aba não pode reaparecer na outra.
+  const goToTab = (next: Tab) => {
+    setTab(next);
+    setSearch('');
+    setCreating(false);
+  };
+
+  const searchHint = SEARCH_HINT[tab];
+  const canCreate =
+    (tab === 'receber' && canReceivables) ||
+    ((tab === 'pagar' || tab === 'fornecedores') && canPayables);
+  const ctaLabel = CTA_LABEL[tab];
+
   return (
     <Layout>
-      <div className="page-header">
-        <div>
+      <header className="page-bar">
+        <div className="page-bar-id">
           <p className="eyebrow">Financeiro</p>
-          <h1>Contas e fluxo de caixa</h1>
+          <h1>{TABS.find((t) => t.key === tab)?.label}</h1>
         </div>
-        {overview.data ? (
-          <div className="header-tags">
-            <span className="tag">
-              A receber {brl(overview.data.receivables.totalOpen)}
-            </span>
-            <span className="tag tag-warning">
-              A pagar {brl(overview.data.payables.totalOpen)}
-            </span>
-          </div>
-        ) : null}
-      </div>
 
-      <nav className="report-tabs" aria-label="Seções do financeiro">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`pill-button ${tab === t.key ? 'active' : ''}`}
-            aria-current={tab === t.key ? 'page' : undefined}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+        <nav className="page-subnav" aria-label="Seções do financeiro">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={`pill-button ${tab === t.key ? 'active' : ''}`}
+              aria-current={tab === t.key ? 'page' : undefined}
+              onClick={() => goToTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="page-bar-actions">
+          {searchHint ? (
+            <input
+              className="field-input header-search"
+              type="search"
+              placeholder={searchHint}
+              aria-label={SEARCH_LABEL[tab] ?? searchHint}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          ) : null}
+          {canCreate && ctaLabel ? (
+            <button
+              className="primary-button"
+              aria-expanded={creating}
+              onClick={() => setCreating((c) => !c)}
+            >
+              {creating ? 'Fechar' : ctaLabel}
+            </button>
+          ) : null}
+        </div>
+      </header>
+
       <p className="muted report-hint">{TABS.find((t) => t.key === tab)?.hint}</p>
 
       {tab === 'painel' ? (
@@ -1510,9 +2001,34 @@ export function FinancePage() {
       ) : null}
 
       {tab === 'fechamento' ? <Fechamento canManage={canCloseDay} /> : null}
-      {tab === 'receber' ? <Receber canManage={canReceivables} /> : null}
-      {tab === 'pagar' ? <Pagar canManage={canPayables} /> : null}
-      {tab === 'fornecedores' ? <Fornecedores canManage={canPayables} /> : null}
+      {tab === 'receber' ? (
+        <Receber
+          canManage={canReceivables}
+          search={search}
+          creating={creating}
+          onCloseCreate={() => setCreating(false)}
+          aging={overview.data?.receivables.aging}
+          carteira={overview.data?.receivables}
+        />
+      ) : null}
+      {tab === 'pagar' ? (
+        <Pagar
+          canManage={canPayables}
+          search={search}
+          creating={creating}
+          onCloseCreate={() => setCreating(false)}
+          aging={overview.data?.payables.aging}
+          carteira={overview.data?.payables}
+        />
+      ) : null}
+      {tab === 'fornecedores' ? (
+        <Fornecedores
+          canManage={canPayables}
+          search={search}
+          creating={creating}
+          onCloseCreate={() => setCreating(false)}
+        />
+      ) : null}
     </Layout>
   );
 }

@@ -71,14 +71,14 @@ a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-
   gap: 16px;
   padding: 10px 14px;
   border-left: 3px solid var(--border, #d4d4d8);
-  background: var(--surface-muted, rgba(0, 0, 0, .02));
+  background: var(--surface-4);
   border-radius: 6px;
 }
 
 .ops-alert p {
   margin: 2px 0 0;
   font-size: 13px;
-  color: var(--text-muted, #6b7280);
+  color: var(--muted);
 }
 
 .ops-alert-alto {
