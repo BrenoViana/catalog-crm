@@ -88,3 +88,10 @@ licenca-publica.pem
 *.p12
 *.pfx
 *.der
+
+# Skills de agente instaladas localmente. Sao ferramenta do desenvolvedor,
+# nao codigo do produto: nao viajam com o repositorio da loja. Evita publicar
+# Python de terceiro e symlinks de caminho absoluto num repo publico (SEC-107).
+.agents/
+.claude/skills/
+skills-lock.json

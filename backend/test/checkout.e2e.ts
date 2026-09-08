@@ -1474,24 +1474,50 @@ async function main() {
     // sem renumerar. `clientRef` torna o reenvio idempotente.
     const dbC = app.get(PrismaService);
     // As vendas de contingencia sao canceladas via API (nao da para hard-delete:
-    // ha pagamento, movimento e documento fiscal pendurados). Aqui soltamos os
-    // terminais de teste (FK Sale.terminalId e ON DELETE SET NULL) e apagamos os
+    // ha pagamento, movimento e documento fiscal pendurados). Apagamos os
     // documentos das series de contingencia do teste — senao a checagem
-    // anti-colisao (SEC-090) alocaria o proximo numero livre, nao o 1.
+    // anti-colisao (SEC-090) alocaria o proximo numero livre, nao o 1 — e
+    // ARQUIVAMOS os terminais da rodada anterior para liberar os codigos.
+    //
+    // Arquivar, e nao apagar: Sale.terminalId e ON DELETE RESTRICT desde a
+    // migration `terminal_nao_se_apaga`. Antes, o delete em cascata zerava o
+    // terminalId das vendas e cada rodada deixava mais orfas com o MESMO
+    // clientRef — o que anulava o unico [terminalId, clientRef] e quebrava o
+    // backfill de terminais no boot. Renomear preserva o vinculo das vendas.
+    // A faixa de contingencia tambem e liberada: ela e unica entre terminais,
+    // e o terminal arquivado nao pode continuar segurando a serie 990/991.
     const dropE2eContingencyState = async () => {
       await dbC.fiscalDocument
         .deleteMany({ where: { series: { in: [990, 991] } } })
         .catch(() => undefined);
-      await dbC.terminal
-        .deleteMany({
+      const antigos = await dbC.terminal
+        .findMany({
           where: {
             OR: [
               { code: { in: ['CAIXA-E2E', 'CAIXA-BAD', 'CAIXA-E2E-CONTINGENCIA'] } },
               { name: { startsWith: 'Caixa E2E' } },
             ],
           },
+          select: { id: true },
         })
-        .catch(() => undefined);
+        .catch(() => [] as { id: string }[]);
+      const marca = Date.now().toString(36).toUpperCase();
+      for (const [i, t] of antigos.entries()) {
+        await dbC.terminal
+          .update({
+            where: { id: t.id },
+            data: {
+              code: `ARQ-${marca}-${i}`,
+              name: `Caixa arquivado E2E ${marca}-${i}`,
+              active: false,
+              contingencySeries: null,
+              contingencyRangeStart: null,
+              contingencyRangeEnd: null,
+              contingencyNextNumber: null,
+            },
+          })
+          .catch(() => undefined);
+      }
     };
     await dropE2eContingencyState();
 

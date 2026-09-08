@@ -539,9 +539,15 @@ model Sale {
   /// como rotulo para exibicao e relatorios; a identidade estavel e terminalId.
   terminal    String?
   /// Terminal registrado que originou a venda. Anulavel: vendas historicas e
-  /// terminais nunca cadastrados ficam sem vinculo.
+  /// terminais nunca cadastrados ficam sem vinculo. Mas uma vez vinculada, a
+  /// venda NUNCA volta a ficar sem terminal: `Restrict` impede apagar um
+  /// terminal com vendas. Com `SetNull`, apagar o terminal zerava o terminalId
+  /// e anulava na pratica o unico ([terminalId, clientRef]) abaixo — no
+  /// Postgres NULLs sao distintos num indice unico —, deixando reenvios de
+  /// checkout sem protecao de idempotencia. Terminal se desativa (`active`),
+  /// nao se apaga; a API nem expoe rota de exclusao.
   terminalId  String?
-  terminalRef Terminal?  @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  terminalRef Terminal?  @relation(fields: [terminalId], references: [id], onDelete: Restrict)
   /// Chave idempotente do cliente que emitiu a venda (fila offline). So existe
   /// junto de terminalId; um reenvio com o mesmo par devolve a venda ja
   /// gravada, nunca uma segunda.
@@ -746,9 +752,11 @@ model CashSession {
   status                CashSessionStatus @default(ABERTA)
   /// Terminal/caixa em que o turno foi aberto (rotulo para exibicao).
   terminal              String?
-  /// Terminal registrado em que o turno foi aberto. Anulavel, como em Sale.
+  /// Terminal registrado em que o turno foi aberto. Anulavel, como em Sale, e
+  /// tambem `Restrict`: a identidade do terminal de um turno de caixa nao se
+  /// perde por exclusao.
   terminalId            String?
-  terminalRef           Terminal?         @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  terminalRef           Terminal?         @relation(fields: [terminalId], references: [id], onDelete: Restrict)
   openingAmount         Decimal           @db.Decimal(12, 2)
   openedAt              DateTime          @default(now())
   closingCountedAmount  Decimal?          @db.Decimal(12, 2)

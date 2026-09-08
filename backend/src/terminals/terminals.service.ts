@@ -88,6 +88,7 @@ export class TerminalsService implements OnModuleInit {
     if (names.size === 0) return;
 
     let adopted = 0;
+    let skipped = 0;
     for (const name of names) {
       const existing = await this.prisma.terminal.findFirst({
         where: {
@@ -103,20 +104,76 @@ export class TerminalsService implements OnModuleInit {
         : (await this.createWithUniqueCode(name)).id;
 
       const [sales, sessions] = await Promise.all([
-        this.prisma.sale.updateMany({
-          where: { terminal: name, terminalId: null },
-          data: { terminalId },
-        }),
+        this.adoptSales(name, terminalId),
         this.prisma.cashSession.updateMany({
           where: { terminal: name, terminalId: null },
           data: { terminalId },
         }),
       ]);
+      skipped += sales.skipped;
       if (!existing || sales.count || sessions.count) adopted++;
     }
     if (adopted > 0) {
       this.log.log(`Terminais adotados dos registros existentes: ${adopted}.`);
     }
+    if (skipped > 0) {
+      // Residuo de dados anteriores ao ON DELETE RESTRICT: vendas orfas que
+      // repetem o mesmo clientRef. Adotar todas violaria o unico
+      // [terminalId, clientRef]. Ficam sem vinculo, mas com o rotulo de texto.
+      this.log.warn(
+        `Vendas orfas nao adotadas por clientRef repetido: ${skipped}. ` +
+          `Elas mantem o rotulo do terminal, mas seguem sem terminalId.`,
+      );
+    }
+  }
+
+  /**
+   * Vincula ao terminal as vendas que so tinham o rotulo de texto.
+   *
+   * As que nao tem `clientRef` vao num unico UPDATE: sem chave idempotente nao
+   * ha o que colidir. As que tem vao uma a uma, porque o unico
+   * [terminalId, clientRef] pode barrar algumas — dados legados podem repetir o
+   * mesmo clientRef entre orfas, ja que enquanto terminalId era NULL o indice
+   * unico nao impunha nada (no Postgres NULLs sao distintos). Uma delas e
+   * adotada e as demais ficam para tras: um lote inteiro nao pode morrer — e
+   * derrubar o backfill no boot — por causa de resto de historico.
+   */
+  private async adoptSales(name: string, terminalId: string) {
+    const semRef = await this.prisma.sale.updateMany({
+      where: { terminal: name, terminalId: null, clientRef: null },
+      data: { terminalId },
+    });
+
+    const comRef = await this.prisma.sale.findMany({
+      where: { terminal: name, terminalId: null, clientRef: { not: null } },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: BACKFILL_LIMIT,
+    });
+
+    let count = semRef.count;
+    let skipped = 0;
+    for (const sale of comRef) {
+      try {
+        await this.prisma.sale.update({
+          where: { id: sale.id },
+          data: { terminalId },
+        });
+        count++;
+      } catch (err) {
+        // P2002 = o par (terminalId, clientRef) ja existe. Qualquer outro erro
+        // e inesperado e deve subir.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          skipped++;
+          continue;
+        }
+        throw err;
+      }
+    }
+    return { count, skipped };
   }
 
   /** Cria um terminal resolvendo colisao de codigo com sufixo numerico. */
