@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockAdjustDto } from './dto/stock-adjust.dto';
+import { photoUrls } from '../products/product-images.service';
 
 @Injectable()
 export class InventoryService {
@@ -9,7 +10,11 @@ export class InventoryService {
 
   async list() {
     const items = await this.prisma.stockItem.findMany({
-      include: { product: { include: { category: true } } },
+      include: {
+        product: {
+          include: { category: true, photo: { select: { token: true } } },
+        },
+      },
       orderBy: { product: { name: 'asc' } },
     });
     return items.map((it) => ({
@@ -18,6 +23,10 @@ export class InventoryService {
       sku: it.product.sku,
       unit: it.product.unit,
       category: it.product.category?.name ?? null,
+      // A conferencia de estoque e feita com o produto na mao: a foto e o que
+      // confirma que a linha lida e a caixa que a pessoa esta segurando.
+      photo: it.product.photo ? photoUrls(it.product.photo.token) : null,
+      imageUrl: it.product.imageUrl,
       quantity: it.quantity,
       minQuantity: it.minQuantity,
       low: new Prisma.Decimal(it.quantity).lte(it.minQuantity),

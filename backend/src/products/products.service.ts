@@ -6,6 +6,32 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { photoUrls } from './product-images.service';
+
+/**
+ * A listagem carrega so o token da foto — nunca os bytes. Com os bytes aqui,
+ * um GET /products de 500 itens trafegaria centenas de megabytes; com o token,
+ * cada produto custa 32 caracteres e a imagem vem depois, em paralelo e com
+ * cache do navegador.
+ */
+const PRODUCT_INCLUDE = {
+  category: true,
+  stock: true,
+  taxGroup: true,
+  photo: { select: { token: true } },
+} as const;
+
+type WithPhoto = { photo?: { token: string } | null };
+
+/**
+ * Troca o registro cru da foto pelas URLs que o frontend consome. O campo
+ * `imageUrl` (URL externa, vinda de importacao) continua na resposta e serve de
+ * reserva quando a loja ainda nao carregou uma foto propria.
+ */
+function withPhoto<T extends WithPhoto>(product: T) {
+  const { photo, ...rest } = product;
+  return { ...rest, photo: photo ? photoUrls(photo.token) : null };
+}
 
 @Injectable()
 export class ProductsService {
@@ -39,47 +65,50 @@ export class ProductsService {
 
       const found = await this.prisma.product.findMany({
         where: { id: { in: ids } },
-        include: { category: true, stock: true, taxGroup: true },
+        include: PRODUCT_INCLUDE,
       });
       // findMany nao preserva a ordem do IN: reaplica a relevancia do SQL.
       const rank = new Map(ids.map((id, i) => [id, i]));
-      return found.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+      return found
+        .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0))
+        .map(withPhoto);
     }
 
-    return this.prisma.product.findMany({
+    const all = await this.prisma.product.findMany({
       where: {
         active: onlyActive ? true : undefined,
         categoryId: categoryId || undefined,
       },
       orderBy: { name: 'asc' },
-      include: { category: true, stock: true, taxGroup: true },
+      include: PRODUCT_INCLUDE,
     });
+    return all.map(withPhoto);
   }
 
   async findOne(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
-      include: { category: true, stock: true, taxGroup: true },
+      include: PRODUCT_INCLUDE,
     });
     if (!product) throw new NotFoundException('Produto não encontrado.');
-    return product;
+    return withPhoto(product);
   }
 
   /** Busca por codigo de barras ou SKU exato - usado pelo PDV. */
   async findByCode(code: string) {
     const product = await this.prisma.product.findFirst({
       where: { OR: [{ barcode: code }, { sku: code }] },
-      include: { category: true, stock: true, taxGroup: true },
+      include: PRODUCT_INCLUDE,
     });
     if (!product) throw new NotFoundException('Produto não encontrado.');
-    return product;
+    return withPhoto(product);
   }
 
   async create(dto: CreateProductDto) {
     const exists = await this.prisma.product.findUnique({ where: { sku: dto.sku } });
     if (exists) throw new BadRequestException('Já existe um produto com este SKU.');
 
-    return this.prisma.product.create({
+    const created = await this.prisma.product.create({
       data: {
         sku: dto.sku,
         barcode: dto.barcode || null,
@@ -100,13 +129,14 @@ export class ProductsService {
           },
         },
       },
-      include: { category: true, stock: true },
+      include: PRODUCT_INCLUDE,
     });
+    return withPhoto(created);
   }
 
   async update(id: string, dto: UpdateProductDto) {
     await this.findOne(id);
-    return this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id },
       data: {
         sku: dto.sku,
@@ -122,8 +152,9 @@ export class ProductsService {
         categoryId: dto.categoryId,
         taxGroupId: dto.taxGroupId,
       },
-      include: { category: true, stock: true },
+      include: PRODUCT_INCLUDE,
     });
+    return withPhoto(updated);
   }
 
   async remove(id: string) {

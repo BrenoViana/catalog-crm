@@ -1,0 +1,197 @@
+/* Campo de foto do produto: área de soltar/colar, prévia e editor de recorte.
+   Tudo sai de token — nenhuma cor ou medida solta. */
+
+.photo-field {
+  margin-bottom: var(--space-4);
+}
+
+/* ------------------------------------------------------- prévia / soltar */
+
+.photo-drop {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+  transition: border-color var(--dur-base) var(--ease), background var(--dur-base) var(--ease);
+}
+
+/* Com foto, a caixa deixa de ser um convite e vira um cartão de conteúdo:
+   a borda tracejada some para o olho parar de tratá-la como "vazio a
+   preencher". */
+.photo-drop.has-photo {
+  border-style: solid;
+  border-color: var(--border);
+  background: var(--surface-4);
+}
+
+.photo-drop.is-dragging {
+  border-color: var(--primary);
+  background: var(--accent-soft);
+}
+
+.photo-preview {
+  flex: 0 0 auto;
+  width: 132px;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #ffffff;
+}
+
+.photo-placeholder {
+  color: var(--muted);
+  display: flex;
+}
+
+.photo-side {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.photo-title {
+  color: var(--text-strong);
+  font-size: 0.95rem;
+}
+
+.photo-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.photo-meta {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-1);
+}
+
+/* Fotografar direto só faz sentido onde existe câmera traseira; no desktop o
+   mesmo botão abriria um seletor de arquivos duplicado. */
+.photo-camera {
+  display: none;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .photo-camera {
+    display: inline-flex;
+  }
+}
+
+/* ---------------------------------------------------------------- editor */
+
+.photo-editor {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+}
+
+.photo-stage {
+  position: relative;
+  width: min(320px, 100%);
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-md);
+}
+
+.photo-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.photo-canvas:active {
+  cursor: grabbing;
+}
+
+/* Guias de terços: ajudam a centralizar o produto sem competir com a imagem.
+   São decorativas e não recebem ponteiro. */
+.photo-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.28) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.28) 1px, transparent 1px);
+  background-size: 33.33% 33.33%;
+  background-position: 33.33% 33.33%;
+  background-repeat: repeat;
+  mix-blend-mode: overlay;
+}
+
+.photo-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.photo-zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  flex: 1 1 180px;
+  max-width: 260px;
+}
+
+.photo-zoom input[type='range'] {
+  flex: 1;
+  accent-color: var(--primary);
+  min-width: 0;
+}
+
+.photo-editor .photo-actions {
+  justify-content: flex-end;
+}
+
+.photo-editor .photo-hint {
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .photo-drop {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .photo-preview {
+    width: 100%;
+    max-width: 200px;
+    margin: 0 auto;
+  }
+}

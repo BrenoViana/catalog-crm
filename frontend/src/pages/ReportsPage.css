@@ -34,11 +34,19 @@
 .report-date input,
 .report-date select {
   padding: 9px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-field);
   background: var(--surface-3);
   color: var(--text-strong);
   font: inherit;
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.report-date input:focus,
+.report-date select:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--ring);
 }
 
 .report-panel {

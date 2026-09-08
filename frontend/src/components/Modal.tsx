@@ -18,9 +18,35 @@ export function Modal({ title, onClose, children, footer, width = 720 }: ModalPr
   const cardRef = useRef<HTMLDivElement>(null);
   const returnFocusTo = useRef<Element | null>(null);
 
+  /**
+   * Foco inicial e devolucao do foco — so na montagem.
+   *
+   * Ficava junto do listener de Esc, que depende de `onClose`; como as telas
+   * passam um arrow inline, a identidade muda a cada render e o efeito rodava
+   * de novo a cada tecla digitada, devolvendo o cursor para o primeiro campo.
+   */
   useEffect(() => {
     returnFocusTo.current = document.activeElement;
 
+    // Primeiro controle VISIVEL do modal. A lista crua pegaria tambem os
+    // campos de arquivo escondidos (o seletor de foto do produto, por exemplo),
+    // e o foco morreria num elemento fora da tela.
+    const candidates = cardRef.current?.querySelectorAll<HTMLElement>(
+      'input, select, textarea, button',
+    );
+    for (const element of candidates ?? []) {
+      if (element.tabIndex < 0 || element.hasAttribute('disabled')) continue;
+      if (!element.offsetParent && getComputedStyle(element).position !== 'fixed') continue;
+      element.focus();
+      break;
+    }
+
+    return () => {
+      (returnFocusTo.current as HTMLElement | null)?.focus?.();
+    };
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -29,14 +55,9 @@ export function Modal({ title, onClose, children, footer, width = 720 }: ModalPr
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    cardRef.current?.querySelector<HTMLElement>(
-      'input, select, textarea, button',
-    )?.focus();
-
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = previousOverflow;
-      (returnFocusTo.current as HTMLElement | null)?.focus?.();
     };
   }, [onClose]);
 

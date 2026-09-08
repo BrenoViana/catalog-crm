@@ -2,12 +2,18 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-modal);
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--space-6);
   background: rgba(3, 8, 17, 0.6);
   backdrop-filter: blur(3px);
+  animation: modal-fade var(--dur-fast) var(--ease) both;
+}
+
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .modal-card {
@@ -17,15 +23,21 @@
   flex-direction: column;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  animation: modal-rise var(--dur-base) var(--ease) both;
+}
+
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 20px 22px 14px;
   border-bottom: 1px solid var(--border);
 }
@@ -33,12 +45,13 @@
 .modal-close {
   width: 32px;
   height: 32px;
-  border-radius: 9px;
+  border-radius: var(--radius-xs);
   background: var(--chip-bg);
   border: 1px solid var(--border);
   color: var(--text-strong);
   font-size: 1.2rem;
   line-height: 1;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
 .modal-close:hover { background: var(--accent-soft); border-color: var(--accent-border); }
 

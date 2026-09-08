@@ -89,12 +89,14 @@ export const MODULE_CATALOG: ModuleDef[] = [
     key: 'financeiro',
     name: 'Financeiro',
     description:
-      'Contas a receber e a pagar, fluxo de caixa e conciliação de cartões.',
+      'Contas a receber e a pagar, contas financeiras, plano de contas, ' +
+      'dashboard financeiro, fluxo de caixa e conciliação de cartões.',
     core: false,
     permissions: [
       'finance.view',
       'finance.receivables.manage',
       'finance.payables.manage',
+      'finance.accounts.manage',
     ],
   },
   {

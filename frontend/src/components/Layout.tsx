@@ -72,12 +72,8 @@ const nav: NavEntry[] = [
       { to: '/produtos', label: 'Produtos', need: 'products.view', icon: 'produtos' },
       { to: '/categorias', label: 'Categorias', need: 'categories.manage', icon: 'categorias' },
       { to: '/promocoes', label: 'Promoções', need: 'promotions.manage', icon: 'promocoes' },
-      { to: '/estoque', label: 'Estoque', need: 'inventory.view', icon: 'estoque' },
+      { to: '/clientes', label: 'Clientes', need: 'customers.view', icon: 'clientes' },
     ],
-  },
-  {
-    group: 'Clientes',
-    items: [{ to: '/clientes', label: 'Clientes', need: 'customers.view', icon: 'clientes' }],
   },
   {
     group: 'Análise',
@@ -208,10 +204,13 @@ export function Layout({ children }: { children: ReactNode }) {
         <nav className="nav-menu" aria-label="Navegação principal" onClick={closeOnMobile}>
           {entries.map((entry) => {
             if (!('group' in entry)) return <NavItem key={entry.to} {...entry} />;
-            // Um grupo nunca fica recolhido escondendo a tela em que o usuário
-            // está: ele não encontraria de volta o item que acabou de abrir.
-            const hasActive = entry.items.some((i) => location.pathname.startsWith(i.to));
-            const collapsed = collapsedGroups.includes(entry.group) && !hasActive;
+            // A escolha de recolher é sempre respeitada — inclusive quando a tela
+            // atual está dentro do grupo. Para o usuário não perder o lugar, o
+            // item ativo continua visível mesmo com o grupo recolhido.
+            const collapsed = collapsedGroups.includes(entry.group);
+            const shown = collapsed
+              ? entry.items.filter((i) => location.pathname.startsWith(i.to))
+              : entry.items;
             return (
               <div key={entry.group} className="nav-group">
                 <button
@@ -228,9 +227,9 @@ export function Layout({ children }: { children: ReactNode }) {
                     {collapsed ? '▸' : '▾'}
                   </span>
                 </button>
-                {collapsed
-                  ? null
-                  : entry.items.map((item) => <NavItem key={item.to} {...item} sub />)}
+                {shown.map((item) => (
+                  <NavItem key={item.to} {...item} sub />
+                ))}
               </div>
             );
           })}

@@ -3,24 +3,32 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 32px;
-  background: radial-gradient(circle at center, var(--accent-soft), transparent 35%);
+  padding: var(--space-8);
+  background:
+    radial-gradient(circle at 30% 20%, var(--accent-soft), transparent 40%),
+    radial-gradient(circle at 80% 80%, var(--bg-glow), transparent 45%);
 }
 
 .auth-card {
-  width: min(100%, 440px);
+  width: min(100%, 420px);
   background: var(--surface-3);
   border: 1px solid var(--border);
-  border-radius: 24px;
-  box-shadow: var(--shadow);
-  padding: 32px;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-8);
+  animation: auth-rise 0.32s var(--ease) both;
+}
+
+@keyframes auth-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .auth-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
 .auth-logo {
@@ -33,30 +41,43 @@
 
 .auth-form {
   display: grid;
-  gap: 18px;
+  gap: var(--space-5);
 }
 
 .auth-form label {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .auth-form input {
   width: 100%;
   background: var(--input-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--border-field);
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   color: var(--text-strong);
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--ring);
 }
 
 .auth-error {
+  margin: -4px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
   color: var(--danger-text);
   font-size: 0.84rem;
 }
 
 @media (max-width: 560px) {
-  .auth-card { padding: 24px 20px; }
+  .auth-card { padding: var(--space-6) var(--space-5); }
 }

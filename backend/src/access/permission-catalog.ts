@@ -68,6 +68,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'finance.view', group: 'Financeiro', label: 'Ver financeiro', description: 'Consultar contas a receber e a pagar, fluxo de caixa e resultado do período.' },
   { key: 'finance.receivables.manage', group: 'Financeiro', label: 'Contas a receber', description: 'Lançar, baixar e cancelar títulos de crediário e definir o limite do cliente.' },
   { key: 'finance.payables.manage', group: 'Financeiro', label: 'Contas a pagar', description: 'Cadastrar fornecedores e despesas, dar baixa e programar recorrência.' },
+  { key: 'finance.accounts.manage', group: 'Financeiro', label: 'Contas e plano de contas', description: 'Cadastrar contas financeiras, plano de contas e centros de custo, e registrar transferências entre contas.' },
   { key: 'finance.dailyClosing.manage', group: 'Financeiro', label: 'Fechar o dia', description: 'Consolidar e travar o dia da loja, e reabrir um dia já fechado com justificativa.' },
 
   // ---------------------------------------------------------------- Gestao
@@ -113,7 +114,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
       'loyalty.redeem', 'loyalty.manage',
       'fiscal.view', 'fiscal.emit', 'fiscal.cancel', 'fiscal.contingency',
       'finance.view', 'finance.receivables.manage', 'finance.payables.manage',
-      'finance.dailyClosing.manage',
+      'finance.accounts.manage', 'finance.dailyClosing.manage',
       'dashboard.view', 'reports.view', 'reports.export',
       'terminals.manage',
     ],

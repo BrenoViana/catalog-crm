@@ -255,6 +255,8 @@ export class ReceivablesService {
               installments: count,
               amount: i === 0 ? base.plus(remainder) : base,
               dueDate: new Date(first.getTime() + interval * i * DAY),
+              categoryId: dto.financialCategoryId ?? null,
+              costCenterId: dto.costCenterId ?? null,
               note: dto.note ?? null,
             },
           }),
@@ -398,6 +400,9 @@ export class ReceivablesService {
           amount,
           method: dto.method,
           cashSessionId: openSession?.id ?? null,
+          // Conta so quando o recebimento nao entrou pela gaveta: o dinheiro da
+          // gaveta ja e contado pelo caixa, somar aqui tambem seria em dobro.
+          accountId: openSession ? null : (dto.accountId ?? null),
           userId,
           note: dto.note ?? null,
         },

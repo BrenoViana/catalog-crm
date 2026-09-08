@@ -2,6 +2,7 @@ import './PromotionsModal.css';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal } from './Modal';
+import { IconPlus, IconSearch } from './ui-icons';
 import {
   categoriesApi,
   productsApi,
@@ -10,7 +11,7 @@ import {
   type PromotionKind,
   type PromotionScope,
 } from '../lib/api-client';
-import { brl } from '../lib/format';
+import { brl, dateOnly } from '../lib/format';
 
 /**
  * Gestão das campanhas de desconto automático.
@@ -186,25 +187,34 @@ function resumo(f: PromotionForm, alvoNome: string): string {
   }
 }
 
+/** Rótulo curto da janela de vigência para o card. */
+function janelaLabel(p: Promotion): string | null {
+  if (p.startsAt && p.endsAt) return `${dateOnly(p.startsAt)} – ${dateOnly(p.endsAt)}`;
+  if (p.startsAt) return `a partir de ${dateOnly(p.startsAt)}`;
+  if (p.endsAt) return `até ${dateOnly(p.endsAt)}`;
+  return null;
+}
+
 /**
- * Corpo da gestão de campanhas, sem casca.
+ * Formulário moderno de campanha, em modal.
  *
- * Existe separado do modal porque a tela precisa ser alcançável por quem tem
- * `promotions.manage` e NÃO tem `settings.manage` — o GERENTE. Antes, o único
- * caminho passava por Configurações, e a saída prática era conceder o pacote
- * inteiro de configuração (CSC, teto de desconto, rate limit) só para deixar
- * alguém criar promoção (SEC-035).
+ * `promotion` nulo cria; preenchido edita. O modal não sabe da lista: ao salvar,
+ * chama `onSaved` e quem hospeda decide o que invalidar.
  */
-export function PromotionsManager() {
-  const qc = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [form, setForm] = useState<PromotionForm>(EMPTY);
+function PromotionFormModal({
+  promotion,
+  onClose,
+  onSaved,
+}: {
+  promotion: Promotion | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<PromotionForm>(
+    promotion ? toForm(promotion) : EMPTY,
+  );
   const [erro, setErro] = useState<string | null>(null);
 
-  const promotions = useQuery({
-    queryKey: ['promotions'],
-    queryFn: () => promotionsApi.list(),
-  });
   const products = useQuery({
     queryKey: ['products', 'promo'],
     queryFn: () => productsApi.list({ onlyActive: true }),
@@ -227,53 +237,18 @@ export function PromotionsManager() {
     return '';
   }, [form.scope, form.productId, form.categoryId, products.data, categories.data]);
 
-  const invalidar = () => {
-    qc.invalidateQueries({ queryKey: ['promotions'] });
-  };
-
   const salvar = useMutation({
     mutationFn: () =>
-      selected
-        ? promotionsApi.update(selected, fromForm(form))
+      promotion
+        ? promotionsApi.update(promotion.id, fromForm(form))
         : promotionsApi.create(fromForm(form)),
     onSuccess: () => {
       setErro(null);
-      setSelected(null);
-      setForm(EMPTY);
-      invalidar();
+      onSaved();
     },
     onError: (e: unknown) =>
       setErro(e instanceof Error ? e.message : 'Não foi possível salvar.'),
   });
-
-  const remover = useMutation({
-    mutationFn: (id: string) => promotionsApi.remove(id),
-    onSuccess: () => {
-      setSelected(null);
-      setForm(EMPTY);
-      invalidar();
-    },
-    onError: (e: unknown) =>
-      setErro(e instanceof Error ? e.message : 'Não foi possível remover.'),
-  });
-
-  const alternar = useMutation({
-    mutationFn: (p: Promotion) =>
-      promotionsApi.update(p.id, { active: !p.active }),
-    onSuccess: invalidar,
-    onError: (e: unknown) =>
-      setErro(
-        e instanceof Error
-          ? `Não foi possível mudar o estado da campanha: ${e.message}`
-          : 'Não foi possível mudar o estado da campanha.',
-      ),
-  });
-
-  const editar = (p: Promotion) => {
-    setSelected(p.id);
-    setForm(toForm(p));
-    setErro(null);
-  };
 
   const alvoObrigatorio =
     (form.scope === 'PRODUCT' && !form.productId) ||
@@ -291,242 +266,402 @@ export function PromotionsManager() {
     form.name.trim().length > 0 && !alvoObrigatorio && !numeroInvalido;
 
   return (
-    <div className="promo-layout">
-        <aside className="promo-list">
-          <div className="promo-list-head">
-            <span>{promotions.data?.length ?? 0} campanha(s)</span>
-            <button
-              className="ghost-button"
-              onClick={() => {
-                setSelected(null);
-                setForm(EMPTY);
-                setErro(null);
-              }}
-            >
-              Nova
-            </button>
-          </div>
-          {promotions.isLoading ? <p className="muted">Carregando…</p> : null}
-          {promotions.isError ? (
-            <p className="promo-erro">
-              Não foi possível carregar as campanhas. A lista abaixo não reflete a
-              loja — não crie campanha nova sem recarregar.
-            </p>
-          ) : null}
-          <ul>
-            {(promotions.data ?? []).map((p) => (
-              <li
-                key={p.id}
-                className={selected === p.id ? 'is-selected' : undefined}
-              >
-                <button className="promo-item" onClick={() => editar(p)}>
-                  <strong>{p.name}</strong>
-                  <small>
-                    {KIND_LABEL[p.kind]} · {SCOPE_LABEL[p.scope]}
-                    {p.priority ? ` · prio ${p.priority}` : ''}
-                  </small>
-                </button>
-                <button
-                  className={p.active ? 'promo-pill on' : 'promo-pill off'}
-                  title={p.active ? 'Desativar campanha' : 'Ativar campanha'}
-                  onClick={() => alternar.mutate(p)}
-                >
-                  {p.active ? 'ativa' : 'inativa'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-
-        <section className="promo-form">
-          <label>
-            <span>Nome da campanha</span>
-            <input
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-              placeholder="Ex.: Semana do cliente"
-            />
-          </label>
-
-          <div className="promo-row">
-            <label>
-              <span>Tipo de desconto</span>
-              <select
-                value={form.kind}
-                onChange={(e) => set('kind', e.target.value as PromotionKind)}
-              >
-                {Object.entries(KIND_LABEL).map(([k, label]) => (
-                  <option key={k} value={k}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Aplica-se a</span>
-              <select
-                value={form.scope}
-                onChange={(e) => set('scope', e.target.value as PromotionScope)}
-              >
-                {Object.entries(SCOPE_LABEL).map(([k, label]) => (
-                  <option key={k} value={k}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          {form.scope === 'PRODUCT' ? (
-            <label>
-              <span>Produto</span>
-              <select
-                value={form.productId}
-                onChange={(e) => set('productId', e.target.value)}
-              >
-                <option value="">Selecione…</option>
-                {(products.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
-          {form.scope === 'CATEGORY' ? (
-            <label>
-              <span>Categoria</span>
-              <select
-                value={form.categoryId}
-                onChange={(e) => set('categoryId', e.target.value)}
-              >
-                <option value="">Selecione…</option>
-                {(categories.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
-          {form.kind === 'BUY_X_PAY_Y' ? (
-            <div className="promo-row">
-              <label>
-                <span>Leve</span>
-                <input
-                  inputMode="numeric"
-                  value={form.buyQty}
-                  onChange={(e) => set('buyQty', e.target.value)}
-                />
-              </label>
-              <label>
-                <span>Pague</span>
-                <input
-                  inputMode="numeric"
-                  value={form.payQty}
-                  onChange={(e) => set('payQty', e.target.value)}
-                />
-              </label>
-            </div>
-          ) : (
-            <label>
-              <span>
-                {form.kind === 'PERCENT'
-                  ? 'Percentual (%)'
-                  : form.kind === 'FIXED_PRICE'
-                    ? 'Preço promocional (R$ por unidade)'
-                    : 'Desconto (R$ por unidade)'}
-              </span>
-              <input
-                inputMode="decimal"
-                value={form.value}
-                onChange={(e) => set('value', e.target.value)}
-              />
-            </label>
-          )}
-
-          <div className="promo-row">
-            <label>
-              <span>Quantidade mínima</span>
-              <input
-                inputMode="decimal"
-                value={form.minQuantity}
-                placeholder="opcional"
-                onChange={(e) => set('minQuantity', e.target.value)}
-              />
-            </label>
-            <label>
-              <span>Prioridade</span>
-              <input
-                inputMode="numeric"
-                value={form.priority}
-                onChange={(e) => set('priority', e.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="promo-row">
-            <label>
-              <span>Começa em</span>
-              <input
-                type="datetime-local"
-                value={form.startsAt}
-                onChange={(e) => set('startsAt', e.target.value)}
-              />
-            </label>
-            <label>
-              <span>Termina em</span>
-              <input
-                type="datetime-local"
-                value={form.endsAt}
-                onChange={(e) => set('endsAt', e.target.value)}
-              />
-            </label>
-          </div>
-
-          <label className="promo-check">
+    <Modal
+      title={promotion ? `Editar campanha — ${promotion.name}` : 'Nova campanha'}
+      onClose={onClose}
+      width={680}
+      footer={
+        <>
+          <label className="toggle spacer">
             <input
               type="checkbox"
               checked={form.active}
               onChange={(e) => set('active', e.target.checked)}
             />
-            <span>Campanha ativa</span>
+            Campanha ativa
           </label>
+          <button className="ghost-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button
+            className="primary-button"
+            disabled={!podeSalvar || salvar.isPending}
+            onClick={() => salvar.mutate()}
+          >
+            {salvar.isPending
+              ? 'Salvando…'
+              : promotion
+                ? 'Salvar alterações'
+                : 'Criar campanha'}
+          </button>
+        </>
+      }
+    >
+      <div className="promo-form">
+        <label className="field">
+          <span>Nome da campanha</span>
+          <input
+            value={form.name}
+            onChange={(e) => set('name', e.target.value)}
+            placeholder="Ex.: Semana do cliente"
+          />
+        </label>
 
-          <p className="promo-resumo">{resumo(form, alvoNome)}</p>
-          <p className="promo-nota">
-            Promoções não se acumulam: quando duas alcançam o mesmo item, vence a de
-            maior prioridade. O desconto é sempre recalculado pelo servidor no
-            fechamento da venda.
-          </p>
-
-          {erro ? <p className="promo-erro">{erro}</p> : null}
-
-          <div className="promo-actions">
-            <button
-              className="primary-button"
-              disabled={!podeSalvar || salvar.isPending}
-              onClick={() => salvar.mutate()}
+        <div className="form-grid">
+          <label className="field">
+            <span>Tipo de desconto</span>
+            <select
+              value={form.kind}
+              onChange={(e) => set('kind', e.target.value as PromotionKind)}
             >
-              {salvar.isPending
-                ? 'Salvando…'
-                : selected
-                  ? 'Salvar alterações'
-                  : 'Criar campanha'}
-            </button>
-            {selected ? (
-              <button
-                className="ghost-button danger"
-                disabled={remover.isPending}
-                onClick={() => remover.mutate(selected)}
-              >
-                Remover
-              </button>
-            ) : null}
+              {Object.entries(KIND_LABEL).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Aplica-se a</span>
+            <select
+              value={form.scope}
+              onChange={(e) => set('scope', e.target.value as PromotionScope)}
+            >
+              {Object.entries(SCOPE_LABEL).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {form.scope === 'PRODUCT' ? (
+          <label className="field">
+            <span>Produto</span>
+            <select
+              value={form.productId}
+              onChange={(e) => set('productId', e.target.value)}
+            >
+              <option value="">Selecione…</option>
+              {(products.data ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {form.scope === 'CATEGORY' ? (
+          <label className="field">
+            <span>Categoria</span>
+            <select
+              value={form.categoryId}
+              onChange={(e) => set('categoryId', e.target.value)}
+            >
+              <option value="">Selecione…</option>
+              {(categories.data ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {form.kind === 'BUY_X_PAY_Y' ? (
+          <div className="form-grid">
+            <label className="field">
+              <span>Leve</span>
+              <input
+                inputMode="numeric"
+                value={form.buyQty}
+                onChange={(e) => set('buyQty', e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Pague</span>
+              <input
+                inputMode="numeric"
+                value={form.payQty}
+                onChange={(e) => set('payQty', e.target.value)}
+              />
+            </label>
           </div>
-        </section>
+        ) : (
+          <label className="field">
+            <span>
+              {form.kind === 'PERCENT'
+                ? 'Percentual (%)'
+                : form.kind === 'FIXED_PRICE'
+                  ? 'Preço promocional (R$ por unidade)'
+                  : 'Desconto (R$ por unidade)'}
+            </span>
+            <input
+              inputMode="decimal"
+              value={form.value}
+              onChange={(e) => set('value', e.target.value)}
+            />
+          </label>
+        )}
+
+        <div className="form-grid">
+          <label className="field">
+            <span>Quantidade mínima</span>
+            <input
+              inputMode="decimal"
+              value={form.minQuantity}
+              placeholder="opcional"
+              onChange={(e) => set('minQuantity', e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Prioridade</span>
+            <input
+              inputMode="numeric"
+              value={form.priority}
+              onChange={(e) => set('priority', e.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="form-grid">
+          <label className="field">
+            <span>Começa em</span>
+            <input
+              type="datetime-local"
+              value={form.startsAt}
+              onChange={(e) => set('startsAt', e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Termina em</span>
+            <input
+              type="datetime-local"
+              value={form.endsAt}
+              onChange={(e) => set('endsAt', e.target.value)}
+            />
+          </label>
+        </div>
+
+        <p className="promo-resumo">{resumo(form, alvoNome)}</p>
+        <p className="promo-nota">
+          Promoções não se acumulam: quando duas alcançam o mesmo item, vence a de
+          maior prioridade. O desconto é sempre recalculado pelo servidor no
+          fechamento da venda.
+        </p>
+
+        {erro ? <p className="promo-erro">{erro}</p> : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Corpo da gestão de campanhas, sem casca.
+ *
+ * Existe separado do modal porque a tela precisa ser alcançável por quem tem
+ * `promotions.manage` e NÃO tem `settings.manage` — o GERENTE. Antes, o único
+ * caminho passava por Configurações, e a saída prática era conceder o pacote
+ * inteiro de configuração (CSC, teto de desconto, rate limit) só para deixar
+ * alguém criar promoção (SEC-035).
+ */
+export function PromotionsManager() {
+  const qc = useQueryClient();
+  // `undefined` = modal fechado; `null` = criar; objeto = editar.
+  const [editing, setEditing] = useState<Promotion | null | undefined>(undefined);
+  const [confirmRemove, setConfirmRemove] = useState<Promotion | null>(null);
+  const [busca, setBusca] = useState('');
+  const [erro, setErro] = useState<string | null>(null);
+
+  const promotions = useQuery({
+    queryKey: ['promotions'],
+    queryFn: () => promotionsApi.list(),
+  });
+
+  const invalidar = () => {
+    qc.invalidateQueries({ queryKey: ['promotions'] });
+  };
+
+  const remover = useMutation({
+    mutationFn: (id: string) => promotionsApi.remove(id),
+    onSuccess: () => {
+      setConfirmRemove(null);
+      invalidar();
+    },
+    onError: (e: unknown) =>
+      setErro(e instanceof Error ? e.message : 'Não foi possível remover.'),
+  });
+
+  const alternar = useMutation({
+    mutationFn: (p: Promotion) => promotionsApi.update(p.id, { active: !p.active }),
+    onSuccess: invalidar,
+    onError: (e: unknown) =>
+      setErro(
+        e instanceof Error
+          ? `Não foi possível mudar o estado da campanha: ${e.message}`
+          : 'Não foi possível mudar o estado da campanha.',
+      ),
+  });
+
+  const lista = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    const all = promotions.data ?? [];
+    return q ? all.filter((p) => p.name.toLowerCase().includes(q)) : all;
+  }, [promotions.data, busca]);
+
+  return (
+    <div className="promo-manager">
+      <div className="toolbar">
+        <div className="toolbar-field has-icon">
+          <span className="toolbar-icon">
+            <IconSearch />
+          </span>
+          <input
+            className="field-input"
+            placeholder="Buscar campanha pelo nome…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+        <button
+          className="primary-button with-icon"
+          onClick={() => {
+            setErro(null);
+            setEditing(null);
+          }}
+        >
+          <IconPlus />
+          Nova campanha
+        </button>
+      </div>
+
+      {promotions.isError ? (
+        <p className="promo-erro">
+          Não foi possível carregar as campanhas. A lista abaixo não reflete a
+          loja — não crie campanha nova sem recarregar.
+        </p>
+      ) : null}
+      {erro ? <p className="promo-erro">{erro}</p> : null}
+
+      {promotions.isLoading ? (
+        <p className="muted">Carregando…</p>
+      ) : lista.length === 0 ? (
+        <div className="empty-state">
+          <strong>
+            {busca.trim()
+              ? 'Nenhuma campanha corresponde à busca.'
+              : 'Nenhuma campanha cadastrada.'}
+          </strong>
+          {busca.trim() ? null : (
+            <span>Crie a primeira em “Nova campanha”.</span>
+          )}
+        </div>
+      ) : (
+        <div className="promo-cards">
+          {lista.map((p) => {
+            const alvoNome = p.product?.name ?? p.category?.name ?? '';
+            const janela = janelaLabel(p);
+            return (
+              <article
+                key={p.id}
+                className={`promo-card ${p.active ? '' : 'is-off'}`}
+              >
+                <div className="promo-card-head">
+                  <h3>{p.name}</h3>
+                  <button
+                    className={p.active ? 'promo-pill on' : 'promo-pill off'}
+                    title={p.active ? 'Desativar campanha' : 'Ativar campanha'}
+                    disabled={alternar.isPending}
+                    onClick={() => alternar.mutate(p)}
+                  >
+                    {p.active ? 'ativa' : 'inativa'}
+                  </button>
+                </div>
+
+                <p className="promo-card-summary">{resumo(toForm(p), alvoNome)}</p>
+
+                <div className="promo-card-tags">
+                  <span className="promo-tag">{KIND_LABEL[p.kind]}</span>
+                  <span className="promo-tag">
+                    {p.scope === 'ALL' ? SCOPE_LABEL.ALL : alvoNome || SCOPE_LABEL[p.scope]}
+                  </span>
+                  {p.priority ? (
+                    <span className="promo-tag">prioridade {p.priority}</span>
+                  ) : null}
+                  {janela ? <span className="promo-tag">{janela}</span> : null}
+                </div>
+
+                <div className="promo-card-actions">
+                  <button
+                    className="mini-button"
+                    onClick={() => {
+                      setErro(null);
+                      setEditing(p);
+                    }}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    className="mini-button danger"
+                    onClick={() => {
+                      setErro(null);
+                      setConfirmRemove(p);
+                    }}
+                  >
+                    Remover
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {editing !== undefined ? (
+        <PromotionFormModal
+          promotion={editing}
+          onClose={() => setEditing(undefined)}
+          onSaved={() => {
+            setEditing(undefined);
+            invalidar();
+          }}
+        />
+      ) : null}
+
+      {confirmRemove ? (
+        <Modal
+          title="Remover campanha"
+          onClose={() => setConfirmRemove(null)}
+          width={460}
+          footer={
+            <>
+              <button
+                className="ghost-button"
+                onClick={() => setConfirmRemove(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="danger-button"
+                disabled={remover.isPending}
+                onClick={() => remover.mutate(confirmRemove.id)}
+              >
+                {remover.isPending ? 'Removendo…' : 'Remover'}
+              </button>
+            </>
+          }
+        >
+          <p>
+            Remover a campanha <strong>{confirmRemove.name}</strong>?
+          </p>
+          <p className="muted" style={{ marginTop: 8 }}>
+            O desconto deixa de valer na próxima venda. Vendas já fechadas não
+            mudam.
+          </p>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -534,7 +669,7 @@ export function PromotionsManager() {
 /** A mesma gestão, em modal, para quem chega por Configurações. */
 export function PromotionsModal({ onClose }: { onClose: () => void }) {
   return (
-    <Modal title="Promoções" onClose={onClose} width={980}>
+    <Modal title="Promoções" onClose={onClose} width={1040}>
       <PromotionsManager />
     </Modal>
   );

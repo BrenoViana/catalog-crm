@@ -11,16 +11,19 @@ export function PromotionsPage() {
   return (
     <Layout>
       <div className="page-header">
-        <h1>Promoções</h1>
-        <p className="muted">
-          Campanhas de desconto automático. O servidor recalcula o desconto no
-          fechamento da venda — o operador não digita nada, e a campanha não
-          consome o teto de desconto dele.
-        </p>
+        <div>
+          <p className="eyebrow">Catálogo</p>
+          <h1>Promoções</h1>
+        </div>
       </div>
-      <section className="panel">
-        <PromotionsManager />
-      </section>
+
+      <p className="muted" style={{ marginTop: 0, marginBottom: 20, maxWidth: '62ch' }}>
+        Campanhas de desconto automático. O servidor recalcula o desconto no
+        fechamento da venda — o operador não digita nada, e a campanha não
+        consome o teto de desconto dele.
+      </p>
+
+      <PromotionsManager />
     </Layout>
   );
 }

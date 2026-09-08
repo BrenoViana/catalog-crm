@@ -5,6 +5,7 @@ import { Layout } from '../components/Layout';
 import { SaleReceipt } from '../components/SaleReceipt';
 import { CustomerFormModal, blankCustomerForm } from '../components/CustomerFormModal';
 import { SupervisorApprovalModal } from '../components/SupervisorApprovalModal';
+import { ProductThumb } from '../components/ProductThumb';
 import {
   cashApi,
   customersApi,
@@ -597,7 +598,8 @@ export function PdvPage() {
               {results.data?.map((p) => (
                 <li key={p.id}>
                   <button className="result-row" onClick={() => addToCart(p)}>
-                    <span>
+                    <ProductThumb product={p} size="md" />
+                    <span className="result-row-main">
                       <strong>{p.name}</strong>
                       <small>
                         {p.sku} · estoque {p.stock?.quantity ?? 0} {p.unit}
@@ -774,6 +776,7 @@ export function PdvPage() {
               {cart.map((l, idx) => (
                 <li key={l.product.id} className="cart-line">
                   <div className="cart-line-row">
+                    <ProductThumb product={l.product} />
                     <div className="cart-line-main">
                       <strong>{l.product.name}</strong>
                       <small>{brl(l.product.price)} / {l.product.unit}</small>

@@ -1,5 +1,17 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+/**
+ * Endereço absoluto de um recurso servido pela API por caminho (imagem de
+ * produto, por exemplo). O backend devolve o caminho relativo ao prefixo /api;
+ * quem monta a URL final é o frontend, que é quem sabe onde a API mora.
+ */
+export function assetUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  // Já absoluto (URL externa vinda de importação) — usa como veio.
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 interface FetchOptions extends RequestInit {
   headers?: Record<string, string>;
 }
@@ -435,6 +447,13 @@ export const categoriesApi = {
 };
 
 // ---------------------------------------------------------------- Produtos
+/** URLs das duas versões da foto carregada na loja. */
+export interface ProductPhoto {
+  /** Versão de exibição (quadrada, 1000px). */
+  url: string;
+  /** Miniatura (200px) — é a usada em lista, grade e PDV. */
+  thumbUrl: string;
+}
 export interface Product {
   id: string;
   sku: string;
@@ -450,6 +469,10 @@ export interface Product {
   category?: Category | null;
   taxGroupId: string | null;
   stock?: { quantity: number; minQuantity: number } | null;
+  /** Foto carregada na loja; `null` quando o produto ainda não tem foto. */
+  photo?: ProductPhoto | null;
+  /** Foto por URL externa — reserva usada só quando não há `photo`. */
+  imageUrl?: string | null;
 }
 export interface CreateProductInput {
   sku: string;
@@ -478,6 +501,14 @@ export const productsApi = {
   update: (id: string, data: Partial<CreateProductInput> & { active?: boolean }) =>
     ApiClient.patch<Product>(`/products/${id}`, data),
   remove: (id: string) => ApiClient.delete<{ message: string }>(`/products/${id}`),
+  /** Grava a foto (as duas versões já recortadas e comprimidas pelo navegador). */
+  setImage: (id: string, data: { image: string; thumb: string }) =>
+    ApiClient.put<ProductPhoto & { token: string; byteSize: number }>(
+      `/products/${id}/image`,
+      data,
+    ),
+  removeImage: (id: string) =>
+    ApiClient.delete<{ message: string }>(`/products/${id}/image`),
   importCsv: (csv: string, createCategories = true) =>
     ApiClient.post<ImportResult>('/products/import', { csv, createCategories }),
 };
@@ -506,6 +537,8 @@ export interface StockRow {
   minQuantity: number;
   low: boolean;
   updatedAt: string;
+  photo?: ProductPhoto | null;
+  imageUrl?: string | null;
 }
 export interface StockMovementRow {
   id: string;
@@ -1366,6 +1399,9 @@ export interface Payable {
   number: number;
   description: string;
   category: string;
+  financialCategory?: { id: string; name: string; kind: FinancialCategoryKind } | null;
+  costCenter?: { id: string; name: string } | null;
+  competencia?: string | null;
   amount: number;
   paidAmount: number;
   dueDate: string;
@@ -1532,8 +1568,104 @@ export interface DayStatus {
   canSeeOperators: boolean;
 }
 
+// -------------------------------------------------- Núcleo financeiro
+
+export type FinancialAccountType = 'BANCO' | 'CAIXA' | 'CARTEIRA';
+export type FinancialCategoryKind = 'RECEITA' | 'DESPESA';
+
+export interface FinancialAccount {
+  id: string;
+  name: string;
+  type: FinancialAccountType;
+  bankBranch: string | null;
+  bankNumber: string | null;
+  openingBalance: number;
+  openingDate: string;
+  active: boolean;
+  archivedAt: string | null;
+}
+
+export interface FinancialAccountInput {
+  name: string;
+  type: FinancialAccountType;
+  bankBranch?: string;
+  bankNumber?: string;
+  openingBalance?: number;
+  openingDate?: string;
+}
+
+export interface CategoryNode {
+  id: string;
+  kind: FinancialCategoryKind;
+  name: string;
+  code: string | null;
+  parentId: string | null;
+  active: boolean;
+  children: CategoryNode[];
+}
+
+export interface CostCenter {
+  id: string;
+  name: string;
+  code: string | null;
+  active: boolean;
+}
+
+export interface AccountTransfer {
+  id: string;
+  amount: number;
+  date: string;
+  note: string | null;
+  fromAccount: { id: string; name: string };
+  toAccount: { id: string; name: string };
+  user?: { id: string; name: string } | null;
+}
+
+export interface FinanceDashboard {
+  contas: Array<{
+    id: string;
+    name: string;
+    type: FinancialAccountType;
+    active: boolean;
+    openingBalance: number;
+    balance: number;
+  }>;
+  saldos: { total: number; bancario: number; caixaCarteira: number };
+  hoje: { aReceber: number; aReceberCount: number; aPagar: number; aPagarCount: number };
+  vencidos: {
+    aReceber: number;
+    aReceberCount: number;
+    aPagar: number;
+    aPagarCount: number;
+  };
+  aVencer: {
+    aReceber: ProjecaoFaixas;
+    aPagar: ProjecaoFaixas;
+  };
+  resultadoMes: {
+    receitaLiquida: number;
+    despesas: number;
+    resultado: number;
+    cmvEstimado: boolean;
+  };
+  inadimplencia: {
+    percent: number;
+    piores: Array<{ nome: string; valor: number; parcelasVencidas: number }>;
+  };
+}
+
+export interface ProjecaoFaixas {
+  d7: number;
+  d15: number;
+  d30: number;
+  d90: number;
+  acima90: number;
+  total: number;
+}
+
 export const financeApi = {
   overview: () => ApiClient.get<FinanceOverview>('/finance/overview'),
+  dashboard: () => ApiClient.get<FinanceDashboard>('/finance/dashboard'),
   cashflow: (from?: string, to?: string) => {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
@@ -1556,11 +1688,13 @@ export const financeApi = {
     amount: number;
     dueDate: string;
     installments?: number;
+    financialCategoryId?: string;
+    costCenterId?: string;
     note?: string;
   }) => ApiClient.post<Receivable[]>('/finance/receivables', data),
   settleReceivable: (
     id: string,
-    data: { amount: number; method: PaymentMethod; note?: string },
+    data: { amount: number; method: PaymentMethod; accountId?: string; note?: string },
   ) => ApiClient.post<Receivable>(`/finance/receivables/${id}/settle`, data),
   cancelReceivable: (id: string, reason: string) =>
     ApiClient.post<Receivable>(`/finance/receivables/${id}/cancel`, { reason }),
@@ -1572,14 +1706,17 @@ export const financeApi = {
     supplierId?: string;
     description: string;
     category?: string;
+    financialCategoryId?: string;
+    costCenterId?: string;
     amount: number;
     dueDate: string;
+    competencia?: string;
     recurrence?: PayableRecurrence;
     note?: string;
   }) => ApiClient.post<Payable>('/finance/payables', data),
   settlePayable: (
     id: string,
-    data: { amount: number; method: PaymentMethod; note?: string },
+    data: { amount: number; method: PaymentMethod; accountId?: string; note?: string },
   ) => ApiClient.post<Payable>(`/finance/payables/${id}/settle`, data),
   cancelPayable: (id: string, reason: string) =>
     ApiClient.post<Payable>(`/finance/payables/${id}/cancel`, { reason }),
@@ -1605,4 +1742,65 @@ export const financeApi = {
       `/finance/daily-closing/${encodeURIComponent(date)}/reopen`,
       { reason },
     ),
+
+  // ---- Contas financeiras
+  accounts: (includeArchived = false) =>
+    ApiClient.get<FinancialAccount[]>(
+      `/finance/accounts${includeArchived ? '?includeArchived=true' : ''}`,
+    ),
+  createAccount: (data: FinancialAccountInput) =>
+    ApiClient.post<FinancialAccount>('/finance/accounts', data),
+  updateAccount: (id: string, data: Partial<FinancialAccountInput>) =>
+    ApiClient.patch<FinancialAccount>(`/finance/accounts/${id}`, data),
+  archiveAccount: (id: string, undo = false) =>
+    ApiClient.post<FinancialAccount>(
+      `/finance/accounts/${id}/archive${undo ? '?undo=true' : ''}`,
+      {},
+    ),
+
+  // ---- Plano de contas
+  financialCategories: (kind?: FinancialCategoryKind) =>
+    ApiClient.get<CategoryNode[]>(
+      `/finance/categories${kind ? `?kind=${kind}` : ''}`,
+    ),
+  createCategory: (data: {
+    kind?: FinancialCategoryKind;
+    name: string;
+    code?: string;
+    parentId?: string;
+  }) => ApiClient.post<CategoryNode>('/finance/categories', data),
+  updateCategory: (id: string, data: { name?: string; code?: string }) =>
+    ApiClient.patch<CategoryNode>(`/finance/categories/${id}`, data),
+  archiveCategory: (id: string) =>
+    ApiClient.post<CategoryNode>(`/finance/categories/${id}/archive`, {}),
+
+  // ---- Centros de custo
+  costCenters: (includeArchived = false) =>
+    ApiClient.get<CostCenter[]>(
+      `/finance/cost-centers${includeArchived ? '?includeArchived=true' : ''}`,
+    ),
+  createCostCenter: (data: { name: string; code?: string }) =>
+    ApiClient.post<CostCenter>('/finance/cost-centers', data),
+  updateCostCenter: (id: string, data: { name: string; code?: string }) =>
+    ApiClient.patch<CostCenter>(`/finance/cost-centers/${id}`, data),
+  archiveCostCenter: (id: string) =>
+    ApiClient.post<CostCenter>(`/finance/cost-centers/${id}/archive`, {}),
+
+  // ---- Transferências entre contas
+  transfers: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return ApiClient.get<AccountTransfer[]>(
+      `/finance/transfers${qs ? `?${qs}` : ''}`,
+    );
+  },
+  createTransfer: (data: {
+    fromAccountId: string;
+    toAccountId: string;
+    amount: number;
+    date?: string;
+    note?: string;
+  }) => ApiClient.post<AccountTransfer>('/finance/transfers', data),
 };

@@ -50,6 +50,7 @@ export const MODULE_OF_PERMISSION: Record<string, ModuleKey> = {
   'finance.view': 'financeiro',
   'finance.receivables.manage': 'financeiro',
   'finance.payables.manage': 'financeiro',
+  'finance.accounts.manage': 'financeiro',
   'dashboard.view': 'relatorios',
   'reports.view': 'relatorios',
   'reports.export': 'relatorios',

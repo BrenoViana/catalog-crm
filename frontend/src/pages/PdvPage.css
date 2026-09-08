@@ -117,6 +117,9 @@
 }
 .result-row:hover { border-color: var(--accent-border); background: var(--accent-soft); }
 .result-row small, .cart-line small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+/* A foto entra antes do texto e o nome ocupa o espaco que sobra — sem isto o
+   preco a direita colaria no nome quando o produto tem descricao longa. */
+.result-row-main { flex: 1; min-width: 0; }
 
 .cart { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
 .cart-line {
@@ -128,10 +131,14 @@
 }
 .cart-line-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  /* Foto, identificacao, quantidade e total: a miniatura e a primeira coisa
+     que o operador confere ao conferir o carrinho com o cliente. */
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 12px;
 }
+.cart-line-main { min-width: 0; }
+.cart-line-main strong { overflow-wrap: anywhere; }
 .cart-line-main strong { display: block; }
 .cart-line-total { min-width: 90px; text-align: right; }
 .cart-line-extra { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

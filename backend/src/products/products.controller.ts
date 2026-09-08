@@ -6,13 +6,16 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ImportProductsDto } from './dto/import-products.dto';
+import { SetProductImageDto } from './dto/product-image.dto';
 import { ProductsImportService } from './products-import.service';
+import { ProductImagesService } from './product-images.service';
 import { RequirePermissions } from '../common/permissions.decorator';
 
 @Controller()
@@ -20,6 +23,7 @@ export class ProductsController {
   constructor(
     private readonly productsService: ProductsService,
     private readonly importService: ProductsImportService,
+    private readonly images: ProductImagesService,
   ) {}
 
   @RequirePermissions('products.view')
@@ -70,6 +74,23 @@ export class ProductsController {
   @Patch('products/:id')
   update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.productsService.update(id, dto);
+  }
+
+  /**
+   * Grava a foto do produto. O corpo traz as duas versoes ja recortadas e
+   * comprimidas pelo navegador; os bytes ficam fora da linha do produto e sao
+   * servidos por /product-images/:token.
+   */
+  @RequirePermissions('products.manage')
+  @Put('products/:id/image')
+  setImage(@Param('id') id: string, @Body() dto: SetProductImageDto) {
+    return this.images.set(id, dto);
+  }
+
+  @RequirePermissions('products.manage')
+  @Delete('products/:id/image')
+  removeImage(@Param('id') id: string) {
+    return this.images.remove(id);
   }
 
   @RequirePermissions('products.manage')

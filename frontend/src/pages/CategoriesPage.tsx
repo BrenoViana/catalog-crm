@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
+import { IconSearch } from '../components/ui-icons';
 import { categoriesApi, type Category } from '../lib/api-client';
 
 interface Editing {
@@ -40,9 +41,17 @@ export function CategoriesPage() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Category | null>(null);
   const [feedback, setFeedback] = useState('');
+  const [search, setSearch] = useState('');
 
   const categories = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
-  const rows = useMemo(() => flatten(categories.data ?? []), [categories.data]);
+  const allRows = useMemo(() => flatten(categories.data ?? []), [categories.data]);
+  // Com busca ativa a árvore perde sentido (o pai pode não casar): as linhas
+  // filtradas vão achatadas, sem indentação.
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allRows;
+    return allRows.filter((r) => r.name.toLowerCase().includes(q)).map((r) => ({ ...r, depth: 0 }));
+  }, [allRows, search]);
 
   const done = (message: string) => {
     queryClient.invalidateQueries({ queryKey: ['categories'] });
@@ -70,8 +79,9 @@ export function CategoriesPage() {
     onSuccess: () => done('Categoria removida.'),
   });
 
-  /** Opcoes de pai: exclui a propria categoria (o backend tambem barra ciclos). */
-  const parentOptions = (rows ?? []).filter((c) => c.id !== editing?.id);
+  /** Opcoes de pai: exclui a propria categoria (o backend tambem barra ciclos).
+      Ignora a busca — o formulário precisa da árvore inteira. */
+  const parentOptions = allRows.filter((c) => c.id !== editing?.id);
 
   return (
     <Layout>
@@ -93,6 +103,20 @@ export function CategoriesPage() {
       ) : null}
 
       <section className="panel">
+        <div className="toolbar">
+          <div className="toolbar-field has-icon">
+            <span className="toolbar-icon">
+              <IconSearch />
+            </span>
+            <input
+              className="field-input"
+              placeholder="Buscar categoria pelo nome…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -136,7 +160,9 @@ export function CategoriesPage() {
               {!categories.isLoading && rows.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="muted">
-                    Nenhuma categoria cadastrada.
+                    {search.trim()
+                      ? 'Nenhuma categoria corresponde à busca.'
+                      : 'Nenhuma categoria cadastrada.'}
                   </td>
                 </tr>
               ) : null}

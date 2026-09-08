@@ -5,10 +5,17 @@ import { Layout } from '../components/Layout';
 import {
   customersApi,
   financeApi,
+  type AccountTransfer,
   type CashflowReport,
+  type CategoryNode,
+  type CostCenter,
+  type FinancialAccount,
+  type FinancialAccountType,
+  type FinancialCategoryKind,
   type Payable,
   type PayableRecurrence,
   type PaymentMethod,
+  type ProjecaoFaixas,
   type Receivable,
   type Supplier,
   type TitleStatus,
@@ -25,12 +32,25 @@ import {
 } from '../lib/format';
 import { useAuthStore } from '../store/authStore';
 
-type Tab = 'painel' | 'fechamento' | 'receber' | 'pagar' | 'fornecedores';
+type Tab =
+  | 'visaoGeral'
+  | 'painel'
+  | 'fechamento'
+  | 'receber'
+  | 'pagar'
+  | 'fornecedores'
+  | 'contas'
+  | 'plano';
 
 const TABS: Array<{ key: Tab; label: string; hint: string }> = [
   {
+    key: 'visaoGeral',
+    label: 'Visão geral',
+    hint: 'Saldo por conta, o que vence hoje, o vencido, a projeção por faixa e a inadimplência.',
+  },
+  {
     key: 'painel',
-    label: 'Painel',
+    label: 'Fluxo de caixa',
     hint: 'Resultado do período (competência) e caixa (o que passou pela gaveta) lado a lado.',
   },
   {
@@ -52,6 +72,16 @@ const TABS: Array<{ key: Tab; label: string; hint: string }> = [
     key: 'fornecedores',
     label: 'Fornecedores',
     hint: 'A quem a loja paga.',
+  },
+  {
+    key: 'contas',
+    label: 'Contas',
+    hint: 'Contas financeiras (banco, caixa, carteira) e transferências entre elas.',
+  },
+  {
+    key: 'plano',
+    label: 'Plano de contas',
+    hint: 'Plano de contas hierárquico e centros de custo para classificar receitas e despesas.',
   },
 ];
 
@@ -290,25 +320,41 @@ function Painel({ report }: { report: CashflowReport }) {
 function SettleForm({
   saldo,
   busy,
+  accounts,
   onSubmit,
   onCancel,
 }: {
   saldo: number;
   busy: boolean;
-  onSubmit: (data: { amount: number; method: PaymentMethod; note?: string }) => void;
+  accounts?: FinancialAccount[];
+  onSubmit: (data: {
+    amount: number;
+    method: PaymentMethod;
+    accountId?: string;
+    note?: string;
+  }) => void;
   onCancel: () => void;
 }) {
   const [amount, setAmount] = useState(String(saldo.toFixed(2)));
   const [method, setMethod] = useState<PaymentMethod>('DINHEIRO');
+  const [accountId, setAccountId] = useState('');
   const [note, setNote] = useState('');
   const valor = toNumber(amount);
+  // Em dinheiro o valor entra/sai da gaveta do turno; conta financeira só faz
+  // sentido para as demais formas (depósito, Pix, transferência).
+  const showAccount = method !== 'DINHEIRO' && (accounts?.length ?? 0) > 0;
 
   return (
     <form
       className="settle-form"
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit({ amount: valor, method, note: note.trim() || undefined });
+        onSubmit({
+          amount: valor,
+          method,
+          accountId: showAccount && accountId ? accountId : undefined,
+          note: note.trim() || undefined,
+        });
       }}
     >
       <label>
@@ -335,6 +381,23 @@ function SettleForm({
           ))}
         </select>
       </label>
+      {showAccount ? (
+        <label>
+          <span>Conta</span>
+          <select
+            className="field-input"
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+          >
+            <option value="">Não informar</option>
+            {(accounts ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <label className="settle-note">
         <span>Observação</span>
         <input
@@ -384,6 +447,10 @@ function Receber({ canManage }: { canManage: boolean }) {
         search: search.trim() || undefined,
       }),
   });
+  const accounts = useQuery({
+    queryKey: ['finance', 'accounts'],
+    queryFn: () => financeApi.accounts(),
+  });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['finance'] });
@@ -391,8 +458,12 @@ function Receber({ canManage }: { canManage: boolean }) {
   };
 
   const settle = useMutation({
-    mutationFn: (data: { amount: number; method: PaymentMethod; note?: string }) =>
-      financeApi.settleReceivable(settling!.id, data),
+    mutationFn: (data: {
+      amount: number;
+      method: PaymentMethod;
+      accountId?: string;
+      note?: string;
+    }) => financeApi.settleReceivable(settling!.id, data),
     onSuccess: () => {
       setSettling(null);
       setErro('');
@@ -536,6 +607,7 @@ function Receber({ canManage }: { canManage: boolean }) {
           <SettleForm
             saldo={settling.amount - settling.paidAmount}
             busy={settle.isPending}
+            accounts={accounts.data ?? []}
             onSubmit={(data) => settle.mutate(data)}
             onCancel={() => setSettling(null)}
           />
@@ -558,6 +630,8 @@ function NovoTitulo({
   const [amount, setAmount] = useState('');
   const [installments, setInstallments] = useState(1);
   const [dueDate, setDueDate] = useState(dateInput());
+  const [financialCategoryId, setFinancialCategoryId] = useState('');
+  const [costCenterId, setCostCenterId] = useState('');
 
   const customers = useQuery({
     queryKey: ['customers', search],
@@ -572,6 +646,8 @@ function NovoTitulo({
         amount: toNumber(amount),
         dueDate: new Date(`${dueDate}T12:00:00`).toISOString(),
         installments,
+        financialCategoryId: financialCategoryId || undefined,
+        costCenterId: costCenterId || undefined,
       }),
     onSuccess: onDone,
     onError: (e: Error) => onError(e.message),
@@ -644,6 +720,13 @@ function NovoTitulo({
           onChange={(e) => setDueDate(e.target.value)}
         />
       </label>
+      <ClassificacaoFields
+        kind="RECEITA"
+        categoryId={financialCategoryId}
+        costCenterId={costCenterId}
+        onCategory={setFinancialCategoryId}
+        onCostCenter={setCostCenterId}
+      />
       <div className="settle-actions">
         <button
           className="primary-button"
@@ -681,6 +764,10 @@ function Pagar({ canManage }: { canManage: boolean }) {
         search: search.trim() || undefined,
       }),
   });
+  const accounts = useQuery({
+    queryKey: ['finance', 'accounts'],
+    queryFn: () => financeApi.accounts(),
+  });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['finance'] });
@@ -688,8 +775,12 @@ function Pagar({ canManage }: { canManage: boolean }) {
   };
 
   const settle = useMutation({
-    mutationFn: (data: { amount: number; method: PaymentMethod; note?: string }) =>
-      financeApi.settlePayable(settling!.id, data),
+    mutationFn: (data: {
+      amount: number;
+      method: PaymentMethod;
+      accountId?: string;
+      note?: string;
+    }) => financeApi.settlePayable(settling!.id, data),
     onSuccess: () => {
       setSettling(null);
       setErro('');
@@ -830,6 +921,7 @@ function Pagar({ canManage }: { canManage: boolean }) {
           <SettleForm
             saldo={settling.amount - settling.paidAmount}
             busy={settle.isPending}
+            accounts={accounts.data ?? []}
             onSubmit={(data) => settle.mutate(data)}
             onCancel={() => setSettling(null)}
           />
@@ -851,7 +943,10 @@ function NovaDespesa({
   const [supplierId, setSupplierId] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(dateInput());
+  const [competencia, setCompetencia] = useState('');
   const [recurrence, setRecurrence] = useState<PayableRecurrence>('NENHUMA');
+  const [financialCategoryId, setFinancialCategoryId] = useState('');
+  const [costCenterId, setCostCenterId] = useState('');
 
   const suppliers = useQuery({ queryKey: ['finance', 'suppliers'], queryFn: () => financeApi.suppliers() });
   const categories = useQuery({
@@ -864,9 +959,14 @@ function NovaDespesa({
       financeApi.createPayable({
         description: description.trim(),
         category: category.trim() || undefined,
+        financialCategoryId: financialCategoryId || undefined,
+        costCenterId: costCenterId || undefined,
         supplierId: supplierId || undefined,
         amount: toNumber(amount),
         dueDate: new Date(`${dueDate}T12:00:00`).toISOString(),
+        competencia: competencia
+          ? new Date(`${competencia}T12:00:00`).toISOString()
+          : undefined,
         recurrence,
       }),
     onSuccess: onDone,
@@ -905,6 +1005,13 @@ function NovaDespesa({
           ))}
         </datalist>
       </label>
+      <ClassificacaoFields
+        kind="DESPESA"
+        categoryId={financialCategoryId}
+        costCenterId={costCenterId}
+        onCategory={setFinancialCategoryId}
+        onCostCenter={setCostCenterId}
+      />
       <label>
         <span>Fornecedor</span>
         <select
@@ -936,6 +1043,15 @@ function NovaDespesa({
           type="date"
           value={dueDate}
           onChange={(e) => setDueDate(e.target.value)}
+        />
+      </label>
+      <label>
+        <span>Competência</span>
+        <input
+          className="field-input"
+          type="date"
+          value={competencia}
+          onChange={(e) => setCompetencia(e.target.value)}
         />
       </label>
       <label>
@@ -1464,13 +1580,907 @@ function Fechamento({ canManage }: { canManage: boolean }) {
   );
 }
 
+// --------------------------------------------------------- Núcleo financeiro
+
+const ACCOUNT_TYPE_LABEL: Record<FinancialAccountType, string> = {
+  BANCO: 'Banco',
+  CAIXA: 'Caixa',
+  CARTEIRA: 'Carteira',
+};
+
+type FinancialAccountDraft = {
+  name: string;
+  type: FinancialAccountType;
+  bankBranch: string;
+  bankNumber: string;
+  openingBalance: string;
+  openingDate: string;
+};
+
+const emptyAccount = (): FinancialAccountDraft => ({
+  name: '',
+  type: 'BANCO',
+  bankBranch: '',
+  bankNumber: '',
+  openingBalance: '',
+  openingDate: dateInput(),
+});
+
+function accountToDraft(a: FinancialAccount): FinancialAccountDraft {
+  return {
+    name: a.name,
+    type: a.type,
+    bankBranch: a.bankBranch ?? '',
+    bankNumber: a.bankNumber ?? '',
+    openingBalance: String(a.openingBalance),
+    openingDate: a.openingDate.slice(0, 10),
+  };
+}
+
+function draftToAccountInput(d: FinancialAccountDraft) {
+  return {
+    name: d.name.trim(),
+    type: d.type,
+    bankBranch: d.bankBranch.trim() || undefined,
+    bankNumber: d.bankNumber.trim() || undefined,
+    openingBalance:
+      d.openingBalance.trim() === '' ? 0 : toNumber(d.openingBalance),
+    openingDate: new Date(`${d.openingDate}T12:00:00`).toISOString(),
+  };
+}
+
+/** Achata a árvore do plano de contas em linhas com profundidade, para <select>. */
+function flattenTree(
+  nodes: CategoryNode[],
+  depth = 0,
+): Array<{ node: CategoryNode; depth: number }> {
+  const out: Array<{ node: CategoryNode; depth: number }> = [];
+  for (const n of nodes) {
+    out.push({ node: n, depth });
+    if (n.children?.length) out.push(...flattenTree(n.children, depth + 1));
+  }
+  return out;
+}
+
+/** Seletores de plano de contas + centro de custo, reusados nos formulários. */
+function ClassificacaoFields({
+  kind,
+  categoryId,
+  costCenterId,
+  onCategory,
+  onCostCenter,
+}: {
+  kind: FinancialCategoryKind;
+  categoryId: string;
+  costCenterId: string;
+  onCategory: (id: string) => void;
+  onCostCenter: (id: string) => void;
+}) {
+  const cats = useQuery({
+    queryKey: ['finance', 'categories', kind],
+    queryFn: () => financeApi.financialCategories(kind),
+  });
+  const ccs = useQuery({
+    queryKey: ['finance', 'cost-centers'],
+    queryFn: () => financeApi.costCenters(),
+  });
+  const flat = useMemo(() => flattenTree(cats.data ?? []), [cats.data]);
+
+  return (
+    <>
+      <label>
+        <span>{kind === 'DESPESA' ? 'Plano de contas' : 'Categoria de receita'}</span>
+        <select
+          className="field-input"
+          value={categoryId}
+          onChange={(e) => onCategory(e.target.value)}
+        >
+          <option value="">Sem classificação</option>
+          {flat
+            .filter((f) => f.node.active)
+            .map((f) => (
+              <option key={f.node.id} value={f.node.id}>
+                {'— '.repeat(f.depth)}
+                {f.node.name}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label>
+        <span>Centro de custo</span>
+        <select
+          className="field-input"
+          value={costCenterId}
+          onChange={(e) => onCostCenter(e.target.value)}
+        >
+          <option value="">Nenhum</option>
+          {(ccs.data ?? []).map((c: CostCenter) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  );
+}
+
+function ProjecaoBar({ faixas }: { faixas: ProjecaoFaixas }) {
+  const items = [
+    { key: 'd7', label: 'Até 7 dias', value: faixas.d7 },
+    { key: 'd15', label: '8 a 15 dias', value: faixas.d15 },
+    { key: 'd30', label: '16 a 30 dias', value: faixas.d30 },
+    { key: 'd90', label: '31 a 90 dias', value: faixas.d90 },
+    { key: 'acima90', label: 'Mais de 90', value: faixas.acima90 },
+  ];
+  if (faixas.total <= 0) return <p className="muted">Nada a vencer.</p>;
+  return (
+    <ul className="aging-list">
+      {items.map((f) => (
+        <li key={f.key}>
+          <span>{f.label}</span>
+          <div className="share-track">
+            <div
+              className="share-fill aging-mid"
+              style={{ width: `${Math.min(100, (f.value / faixas.total) * 100)}%` }}
+            />
+          </div>
+          <strong>{brl(f.value)}</strong>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function VisaoGeral() {
+  const dash = useQuery({
+    queryKey: ['finance', 'dashboard'],
+    queryFn: financeApi.dashboard,
+  });
+
+  if (dash.isLoading) return <p className="muted">Carregando…</p>;
+  if (dash.error) return <p className="form-error">{(dash.error as Error).message}</p>;
+  if (!dash.data) return null;
+  const d = dash.data;
+
+  return (
+    <>
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Saldos</h2>
+          <small className="muted">
+            Abertura + baixas com conta + transferências. O dinheiro da gaveta é
+            contado pelo caixa, não aqui.
+          </small>
+        </div>
+        <div className="stat-grid">
+          <Kpi
+            label="Saldo total"
+            value={brl(d.saldos.total)}
+            tone={d.saldos.total >= 0 ? 'ok' : 'warn'}
+          />
+          <Kpi label="Em banco" value={brl(d.saldos.bancario)} />
+          <Kpi label="Caixa e carteira" value={brl(d.saldos.caixaCarteira)} />
+        </div>
+        {d.contas.length ? (
+          <ul className="list-rows">
+            {d.contas.map((c) => (
+              <li key={c.id}>
+                <span>
+                  {c.name}
+                  {!c.active ? <small className="muted"> · arquivada</small> : null}
+                </span>
+                <strong>{brl(c.balance)}</strong>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">
+            Nenhuma conta cadastrada. Abra a aba “Contas” para criar a primeira.
+          </p>
+        )}
+      </section>
+
+      <div className="finance-columns">
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Vence hoje</h2>
+          </div>
+          <div className="stat-grid">
+            <Kpi
+              label="A receber"
+              value={brl(d.hoje.aReceber)}
+              hint={`${num(d.hoje.aReceberCount)} título(s)`}
+            />
+            <Kpi
+              label="A pagar"
+              value={brl(d.hoje.aPagar)}
+              hint={`${num(d.hoje.aPagarCount)} conta(s)`}
+            />
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Vencido</h2>
+          </div>
+          <div className="stat-grid">
+            <Kpi
+              label="A receber"
+              value={brl(d.vencidos.aReceber)}
+              tone={d.vencidos.aReceber > 0 ? 'warn' : undefined}
+              hint={`${num(d.vencidos.aReceberCount)} título(s)`}
+            />
+            <Kpi
+              label="A pagar"
+              value={brl(d.vencidos.aPagar)}
+              tone={d.vencidos.aPagar > 0 ? 'warn' : undefined}
+              hint={`${num(d.vencidos.aPagarCount)} conta(s)`}
+            />
+          </div>
+        </section>
+      </div>
+
+      <div className="finance-columns">
+        <section className="panel">
+          <div className="panel-header">
+            <h2>A receber a vencer</h2>
+            <strong>{brl(d.aVencer.aReceber.total)}</strong>
+          </div>
+          <ProjecaoBar faixas={d.aVencer.aReceber} />
+        </section>
+        <section className="panel">
+          <div className="panel-header">
+            <h2>A pagar a vencer</h2>
+            <strong>{brl(d.aVencer.aPagar.total)}</strong>
+          </div>
+          <ProjecaoBar faixas={d.aVencer.aPagar} />
+        </section>
+      </div>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Resultado do mês</h2>
+          {d.resultadoMes.cmvEstimado ? (
+            <small className="muted">margem parcial — há item sem custo gravado</small>
+          ) : null}
+        </div>
+        <div className="stat-grid">
+          <Kpi label="Receita líquida" value={brl(d.resultadoMes.receitaLiquida)} />
+          <Kpi label="Despesas pagas" value={brl(d.resultadoMes.despesas)} />
+          <Kpi
+            label="Resultado"
+            value={brl(d.resultadoMes.resultado)}
+            tone={d.resultadoMes.resultado >= 0 ? 'ok' : 'warn'}
+          />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Inadimplência</h2>
+          <strong>{num(d.inadimplencia.percent, 1)}%</strong>
+        </div>
+        {d.inadimplencia.piores.length === 0 ? (
+          <p className="muted">Nenhum título vencido.</p>
+        ) : (
+          <ul className="list-rows">
+            {d.inadimplencia.piores.map((p, i) => (
+              <li key={i}>
+                <span>
+                  {p.nome}{' '}
+                  <small className="muted">· {num(p.parcelasVencidas)} parcela(s)</small>
+                </span>
+                <strong>{brl(p.valor)}</strong>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
+}
+
+function Contas({ canManage }: { canManage: boolean }) {
+  const queryClient = useQueryClient();
+  const [erro, setErro] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<FinancialAccountDraft>(emptyAccount);
+
+  const accounts = useQuery({
+    queryKey: ['finance', 'accounts', 'all'],
+    queryFn: () => financeApi.accounts(true),
+  });
+  const dash = useQuery({
+    queryKey: ['finance', 'dashboard'],
+    queryFn: financeApi.dashboard,
+  });
+  const balanceById = useMemo(
+    () => new Map((dash.data?.contas ?? []).map((c) => [c.id, c.balance])),
+    [dash.data],
+  );
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['finance'] });
+  const fail = (e: unknown) =>
+    setErro(e instanceof Error ? e.message : 'Não foi possível salvar.');
+
+  const save = useMutation({
+    mutationFn: () =>
+      editing
+        ? financeApi.updateAccount(editing, draftToAccountInput(draft))
+        : financeApi.createAccount(draftToAccountInput(draft)),
+    onSuccess: () => {
+      setDraft(emptyAccount());
+      setEditing(null);
+      setErro('');
+      invalidate();
+    },
+    onError: fail,
+  });
+  const archive = useMutation({
+    mutationFn: (v: { id: string; undo: boolean }) =>
+      financeApi.archiveAccount(v.id, v.undo),
+    onSuccess: invalidate,
+    onError: fail,
+  });
+
+  return (
+    <>
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header">
+          <h2>Contas financeiras</h2>
+        </div>
+        {erro ? <p className="form-error">{erro}</p> : null}
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Tipo</th>
+                <th>Dados</th>
+                <th className="ta-right">Abertura</th>
+                <th className="ta-right">Saldo</th>
+                {canManage ? <th /> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {(accounts.data ?? []).map((a) => (
+                <tr key={a.id} className={a.active ? '' : 'row-late'}>
+                  <td>
+                    {a.name}
+                    {!a.active ? <small className="muted"> · arquivada</small> : null}
+                  </td>
+                  <td>{ACCOUNT_TYPE_LABEL[a.type]}</td>
+                  <td>
+                    {a.type === 'BANCO'
+                      ? [a.bankBranch, a.bankNumber].filter(Boolean).join(' / ') || '—'
+                      : '—'}
+                  </td>
+                  <td className="ta-right">{brl(a.openingBalance)}</td>
+                  <td className="ta-right">
+                    {balanceById.has(a.id) ? brl(balanceById.get(a.id)!) : '—'}
+                  </td>
+                  {canManage ? (
+                    <td className="ta-right">
+                      <button
+                        className="mini-button"
+                        onClick={() => {
+                          setEditing(a.id);
+                          setDraft(accountToDraft(a));
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        className="mini-button"
+                        onClick={() => archive.mutate({ id: a.id, undo: !a.active })}
+                      >
+                        {a.active ? 'Arquivar' : 'Reativar'}
+                      </button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+              {accounts.data && accounts.data.length === 0 ? (
+                <tr>
+                  <td colSpan={canManage ? 6 : 5} className="muted">
+                    Nenhuma conta cadastrada.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        {canManage ? (
+          <form
+            className="finance-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save.mutate();
+            }}
+          >
+            <label>
+              <span>Nome</span>
+              <input
+                className="field-input"
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                placeholder="Conta corrente Banco X"
+              />
+            </label>
+            <label>
+              <span>Tipo</span>
+              <select
+                className="field-input"
+                value={draft.type}
+                onChange={(e) =>
+                  setDraft({ ...draft, type: e.target.value as FinancialAccountType })
+                }
+              >
+                <option value="BANCO">Banco</option>
+                <option value="CAIXA">Caixa</option>
+                <option value="CARTEIRA">Carteira</option>
+              </select>
+            </label>
+            {draft.type === 'BANCO' ? (
+              <>
+                <label>
+                  <span>Agência</span>
+                  <input
+                    className="field-input"
+                    value={draft.bankBranch}
+                    onChange={(e) => setDraft({ ...draft, bankBranch: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>Conta</span>
+                  <input
+                    className="field-input"
+                    value={draft.bankNumber}
+                    onChange={(e) => setDraft({ ...draft, bankNumber: e.target.value })}
+                  />
+                </label>
+              </>
+            ) : null}
+            <label>
+              <span>Saldo de abertura</span>
+              <input
+                className="field-input"
+                inputMode="decimal"
+                value={draft.openingBalance}
+                onChange={(e) =>
+                  setDraft({ ...draft, openingBalance: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              <span>Data da abertura</span>
+              <input
+                className="field-input"
+                type="date"
+                value={draft.openingDate}
+                onChange={(e) => setDraft({ ...draft, openingDate: e.target.value })}
+              />
+            </label>
+            <div className="settle-actions">
+              {editing ? (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    setEditing(null);
+                    setDraft(emptyAccount());
+                  }}
+                >
+                  Cancelar
+                </button>
+              ) : null}
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={save.isPending || draft.name.trim().length < 2}
+              >
+                {editing ? 'Salvar' : 'Adicionar conta'}
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </section>
+
+      <Transferencias
+        canManage={canManage}
+        accounts={(accounts.data ?? []).filter((a) => a.active)}
+        onDone={invalidate}
+      />
+    </>
+  );
+}
+
+function Transferencias({
+  canManage,
+  accounts,
+  onDone,
+}: {
+  canManage: boolean;
+  accounts: FinancialAccount[];
+  onDone: () => void;
+}) {
+  const [erro, setErro] = useState('');
+  const [fromId, setFromId] = useState('');
+  const [toId, setToId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(dateInput());
+  const [note, setNote] = useState('');
+
+  const list = useQuery({
+    queryKey: ['finance', 'transfers'],
+    queryFn: () => financeApi.transfers(),
+  });
+
+  const create = useMutation({
+    mutationFn: () =>
+      financeApi.createTransfer({
+        fromAccountId: fromId,
+        toAccountId: toId,
+        amount: toNumber(amount),
+        date: new Date(`${date}T12:00:00`).toISOString(),
+        note: note.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setAmount('');
+      setNote('');
+      setErro('');
+      list.refetch();
+      onDone();
+    },
+    onError: (e: Error) => setErro(e.message),
+  });
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <h2>Transferências entre contas</h2>
+        <small className="muted">
+          Não é receita nem despesa: só muda o dinheiro de lugar.
+        </small>
+      </div>
+      {erro ? <p className="form-error">{erro}</p> : null}
+      {canManage ? (
+        <form
+          className="finance-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+        >
+          <label>
+            <span>De</span>
+            <select
+              className="field-input"
+              value={fromId}
+              onChange={(e) => setFromId(e.target.value)}
+            >
+              <option value="">Selecione…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Para</span>
+            <select
+              className="field-input"
+              value={toId}
+              onChange={(e) => setToId(e.target.value)}
+            >
+              <option value="">Selecione…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Valor</span>
+            <input
+              className="field-input"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </label>
+          <label>
+            <span>Data</span>
+            <input
+              className="field-input"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </label>
+          <label>
+            <span>Observação</span>
+            <input
+              className="field-input"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="opcional"
+            />
+          </label>
+          <div className="settle-actions">
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={
+                create.isPending ||
+                !fromId ||
+                !toId ||
+                fromId === toId ||
+                toNumber(amount) <= 0
+              }
+            >
+              {create.isPending ? 'Registrando…' : 'Transferir'}
+            </button>
+          </div>
+        </form>
+      ) : null}
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>De</th>
+              <th>Para</th>
+              <th className="ta-right">Valor</th>
+              <th>Obs.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(list.data ?? []).map((t: AccountTransfer) => (
+              <tr key={t.id}>
+                <td>{dateOnly(t.date)}</td>
+                <td>{t.fromAccount.name}</td>
+                <td>{t.toAccount.name}</td>
+                <td className="ta-right">{brl(t.amount)}</td>
+                <td>{t.note ?? '—'}</td>
+              </tr>
+            ))}
+            {list.data && list.data.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="muted">
+                  Nenhuma transferência no período.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function PlanoDeContas({ canManage }: { canManage: boolean }) {
+  const queryClient = useQueryClient();
+  const [kind, setKind] = useState<FinancialCategoryKind>('DESPESA');
+  const [erro, setErro] = useState('');
+  const [name, setName] = useState('');
+  const [parentId, setParentId] = useState('');
+  const [ccName, setCcName] = useState('');
+
+  const tree = useQuery({
+    queryKey: ['finance', 'categories', kind],
+    queryFn: () => financeApi.financialCategories(kind),
+  });
+  const ccs = useQuery({
+    queryKey: ['finance', 'cost-centers'],
+    queryFn: () => financeApi.costCenters(),
+  });
+  const flat = useMemo(() => flattenTree(tree.data ?? []), [tree.data]);
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['finance'] });
+  const fail = (e: Error) => setErro(e.message);
+
+  const addCat = useMutation({
+    mutationFn: () =>
+      financeApi.createCategory({
+        kind,
+        name: name.trim(),
+        parentId: parentId || undefined,
+      }),
+    onSuccess: () => {
+      setName('');
+      setParentId('');
+      setErro('');
+      invalidate();
+    },
+    onError: fail,
+  });
+  const archiveCat = useMutation({
+    mutationFn: (id: string) => financeApi.archiveCategory(id),
+    onSuccess: invalidate,
+    onError: fail,
+  });
+  const addCc = useMutation({
+    mutationFn: () => financeApi.createCostCenter({ name: ccName.trim() }),
+    onSuccess: () => {
+      setCcName('');
+      setErro('');
+      invalidate();
+    },
+    onError: fail,
+  });
+  const archiveCc = useMutation({
+    mutationFn: (id: string) => financeApi.archiveCostCenter(id),
+    onSuccess: invalidate,
+    onError: fail,
+  });
+
+  return (
+    <>
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header">
+          <h2>Plano de contas</h2>
+        </div>
+        <div className="report-presets">
+          {(['DESPESA', 'RECEITA'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={`pill-button ${kind === k ? 'active' : ''}`}
+              onClick={() => setKind(k)}
+            >
+              {k === 'DESPESA' ? 'Despesas' : 'Receitas'}
+            </button>
+          ))}
+        </div>
+        {erro ? <p className="form-error">{erro}</p> : null}
+        <ul className="tree-list">
+          {flat.length === 0 ? (
+            <li className="muted">Nenhuma categoria.</li>
+          ) : (
+            flat.map((f) => (
+              <li
+                key={f.node.id}
+                style={{ paddingLeft: 12 + f.depth * 18 }}
+                className={f.node.active ? '' : 'muted'}
+              >
+                <span>
+                  {f.node.name}
+                  {f.node.code ? (
+                    <small className="muted"> · {f.node.code}</small>
+                  ) : null}
+                  {!f.node.active ? (
+                    <small className="muted"> · arquivada</small>
+                  ) : null}
+                </span>
+                {canManage && f.node.active ? (
+                  <button
+                    className="mini-button"
+                    onClick={() => archiveCat.mutate(f.node.id)}
+                  >
+                    Arquivar
+                  </button>
+                ) : null}
+              </li>
+            ))
+          )}
+        </ul>
+        {canManage ? (
+          <form
+            className="finance-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              addCat.mutate();
+            }}
+          >
+            <label>
+              <span>Nome</span>
+              <input
+                className="field-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={
+                  kind === 'DESPESA' ? 'Aluguel, Energia…' : 'Vendas, Serviços…'
+                }
+              />
+            </label>
+            <label>
+              <span>Dentro de</span>
+              <select
+                className="field-input"
+                value={parentId}
+                onChange={(e) => setParentId(e.target.value)}
+              >
+                <option value="">Raiz do plano</option>
+                {flat
+                  .filter((f) => f.node.active)
+                  .map((f) => (
+                    <option key={f.node.id} value={f.node.id}>
+                      {'— '.repeat(f.depth)}
+                      {f.node.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <div className="settle-actions">
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={addCat.isPending || name.trim().length < 2}
+              >
+                Adicionar
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Centros de custo</h2>
+        </div>
+        <ul className="list-rows">
+          {(ccs.data ?? []).length === 0 ? (
+            <li className="muted">Nenhum centro de custo.</li>
+          ) : (
+            (ccs.data ?? []).map((c: CostCenter) => (
+              <li key={c.id}>
+                <span>{c.name}</span>
+                {canManage ? (
+                  <button
+                    className="mini-button"
+                    onClick={() => archiveCc.mutate(c.id)}
+                  >
+                    Arquivar
+                  </button>
+                ) : null}
+              </li>
+            ))
+          )}
+        </ul>
+        {canManage ? (
+          <form
+            className="finance-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              addCc.mutate();
+            }}
+          >
+            <label>
+              <span>Nome</span>
+              <input
+                className="field-input"
+                value={ccName}
+                onChange={(e) => setCcName(e.target.value)}
+                placeholder="Loja, Administrativo…"
+              />
+            </label>
+            <div className="settle-actions">
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={addCc.isPending || ccName.trim().length < 2}
+              >
+                Adicionar
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </section>
+    </>
+  );
+}
+
 export function FinancePage() {
   const permissions = useAuthStore((s) => s.permissions);
   const canReceivables = permissions.includes('finance.receivables.manage');
   const canPayables = permissions.includes('finance.payables.manage');
   const canCloseDay = permissions.includes('finance.dailyClosing.manage');
+  const canAccounts = permissions.includes('finance.accounts.manage');
 
-  const [tab, setTab] = useState<Tab>('painel');
+  const [tab, setTab] = useState<Tab>('visaoGeral');
   const [from, setFrom] = useState(() => {
     const d = new Date();
     return dateInput(new Date(d.getFullYear(), d.getMonth(), 1));
@@ -1518,6 +2528,8 @@ export function FinancePage() {
       </nav>
       <p className="muted report-hint">{TABS.find((t) => t.key === tab)?.hint}</p>
 
+      {tab === 'visaoGeral' ? <VisaoGeral /> : null}
+
       {tab === 'painel' ? (
         <>
           <div className="toolbar">
@@ -1542,6 +2554,8 @@ export function FinancePage() {
       {tab === 'receber' ? <Receber canManage={canReceivables} /> : null}
       {tab === 'pagar' ? <Pagar canManage={canPayables} /> : null}
       {tab === 'fornecedores' ? <Fornecedores canManage={canPayables} /> : null}
+      {tab === 'contas' ? <Contas canManage={canAccounts} /> : null}
+      {tab === 'plano' ? <PlanoDeContas canManage={canAccounts} /> : null}
     </Layout>
   );
 }

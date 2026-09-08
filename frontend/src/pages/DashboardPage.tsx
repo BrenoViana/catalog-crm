@@ -4,8 +4,10 @@ import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { dashboardApi, opsApi } from '../lib/api-client';
 import { brl, dateTime, num, paymentLabel } from '../lib/format';
+import { useAuthStore } from '../store/authStore';
 
 export function DashboardPage() {
+  const canSeeStock = useAuthStore((state) => state.permissions.includes('inventory.view'));
   const { data, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
     queryFn: dashboardApi.getSummary,
@@ -45,12 +47,18 @@ export function DashboardPage() {
               ? `${data.openCashCount} caixa${data.openCashCount > 1 ? 's' : ''} aberto${data.openCashCount > 1 ? 's' : ''}`
               : 'Nenhum caixa aberto'}
           </span>
-          <Link
-            to="/estoque?ruptura=1"
-            className={`tag tag-link ${data && data.lowStockCount > 0 ? 'tag-warning' : ''}`}
-          >
-            {num(data?.lowStockCount)} em ruptura
-          </Link>
+          {canSeeStock ? (
+            <Link
+              to="/estoque?ruptura=1"
+              className={`tag tag-link ${data && data.lowStockCount > 0 ? 'tag-warning' : ''}`}
+            >
+              {num(data?.lowStockCount)} em ruptura
+            </Link>
+          ) : (
+            <span className={`tag ${data && data.lowStockCount > 0 ? 'tag-warning' : ''}`}>
+              {num(data?.lowStockCount)} em ruptura
+            </span>
+          )}
         </div>
       </div>
 
@@ -84,9 +92,18 @@ export function DashboardPage() {
         </section>
       ) : null}
 
-      <div className="stats-grid">
+      <div className="stats-grid" aria-busy={isLoading}>
+        {isLoading ? (
+          <span className="sr-only" role="status">
+            Carregando indicadores da loja…
+          </span>
+        ) : null}
         {(isLoading ? Array.from({ length: 4 }) : stats).map((item, i) => (
-          <article key={i} className={`stat-card ${isLoading ? 'skeleton' : ''}`}>
+          <article
+            key={i}
+            className={`stat-card ${isLoading ? 'skeleton' : ''}`}
+            aria-hidden={isLoading}
+          >
             <span>{(item as { label?: string })?.label ?? ' '}</span>
             <strong>{(item as { value?: string })?.value ?? ' '}</strong>
           </article>

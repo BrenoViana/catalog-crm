@@ -1,11 +1,40 @@
+import './ProductsPage.css';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
 import { ImportProductsModal } from '../components/ImportProductsModal';
+import { ProductThumb, productPhotoUrl } from '../components/ProductThumb';
+import { ProductPhotoField, type PhotoDraft } from '../components/ProductPhotoField';
+import {
+  IconBox,
+  IconCaret,
+  IconCategory,
+  IconGrid,
+  IconList,
+  IconSearch,
+} from '../components/ui-icons';
 import { categoriesApi, productsApi, type Product } from '../lib/api-client';
 import { brl, num } from '../lib/format';
 import { useAuthStore } from '../store/authStore';
+
+/**
+ * Lista ou grade. A grade existe para o trabalho de CATALOGAR (conferir de
+ * relance quem já tem foto, achar o item pela embalagem); a lista continua
+ * sendo o modo de trabalho de preço e estoque, onde os números importam mais.
+ * A escolha fica no navegador porque é preferência de quem opera, não da loja.
+ */
+type ViewMode = 'list' | 'grid';
+const VIEW_KEY = 'catalog.products.view';
+
+function readViewMode(): ViewMode {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'list';
+  } catch {
+    return 'list';
+  }
+}
 
 interface ProductForm {
   id: string | null;
@@ -21,6 +50,8 @@ interface ProductForm {
   initialStock: string;
   minStock: string;
   active: boolean;
+  /** Foto já salva no produto — o rascunho de troca fica em `photo`. */
+  photoUrl: string | null;
 }
 
 const blank: ProductForm = {
@@ -37,6 +68,7 @@ const blank: ProductForm = {
   initialStock: '0',
   minStock: '0',
   active: true,
+  photoUrl: null,
 };
 
 function fromProduct(p: Product): ProductForm {
@@ -54,6 +86,7 @@ function fromProduct(p: Product): ProductForm {
     initialStock: String(p.stock?.quantity ?? 0),
     minStock: String(p.stock?.minQuantity ?? 0),
     active: p.active,
+    photoUrl: productPhotoUrl(p, 'full'),
   };
 }
 
@@ -64,6 +97,7 @@ export function ProductsPage() {
   const queryClient = useQueryClient();
   const permissions = useAuthStore((state) => state.permissions);
   const canEdit = permissions.includes('products.manage');
+  const canSeeStock = permissions.includes('inventory.view');
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -71,6 +105,24 @@ export function ProductsPage() {
   const [confirmRemove, setConfirmRemove] = useState<Product | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
+  const [photo, setPhoto] = useState<PhotoDraft>({ kind: 'keep' });
+
+  const chooseView = (mode: ViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_KEY, mode);
+    } catch {
+      // Modo anônimo ou armazenamento bloqueado: a escolha vale só nesta sessão.
+    }
+  };
+
+  /** Abre o formulário zerando também o rascunho de foto da edição anterior. */
+  const openForm = (next: ProductForm) => {
+    setFeedback('');
+    setPhoto({ kind: 'keep' });
+    setForm(next);
+  };
 
   const products = useQuery({
     queryKey: ['products', 'list', search, categoryFilter],
@@ -79,6 +131,7 @@ export function ProductsPage() {
   const categories = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
 
   const done = (message: string) => {
+    setPhoto({ kind: 'keep' });
     queryClient.invalidateQueries({ queryKey: ['products'] });
     queryClient.invalidateQueries({ queryKey: ['inventory'] });
     setForm(null);
@@ -87,7 +140,7 @@ export function ProductsPage() {
   };
 
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const f = form!;
       const base = {
         name: f.name.trim(),
@@ -101,16 +154,35 @@ export function ProductsPage() {
       };
 
       // Estoque so entra na criacao; depois vira ajuste na tela de Estoque.
-      return f.id
-        ? productsApi.update(f.id, { ...base, active: f.active })
-        : productsApi.create({
+      const saved = f.id
+        ? await productsApi.update(f.id, { ...base, active: f.active })
+        : await productsApi.create({
             ...base,
             sku: f.sku.trim(),
             initialStock: toNumber(f.initialStock) || 0,
             minStock: toNumber(f.minStock) || 0,
           });
+
+      // A foto vai depois porque no cadastro novo só existe id agora. Se ela
+      // falhar, o produto JÁ está salvo — então o erro vira aviso em vez de
+      // derrubar o formulário e induzir uma segunda tentativa (que esbarraria
+      // em "SKU já existe").
+      let warning = '';
+      try {
+        if (photo.kind === 'set') {
+          await productsApi.setImage(saved.id, { image: photo.image, thumb: photo.thumb });
+        } else if (photo.kind === 'remove') {
+          await productsApi.removeImage(saved.id);
+        }
+      } catch (e) {
+        warning = e instanceof Error ? e.message : 'Falha ao enviar a foto.';
+      }
+      return { warning };
     },
-    onSuccess: () => done(form?.id ? 'Produto atualizado.' : 'Produto criado.'),
+    onSuccess: ({ warning }) => {
+      const base = form?.id ? 'Produto atualizado.' : 'Produto criado.';
+      done(warning ? `${base} A foto não foi salva: ${warning}` : base);
+    },
   });
 
   const remove = useMutation({
@@ -133,14 +205,24 @@ export function ProductsPage() {
           <p className="eyebrow">Catálogo</p>
           <h1>Produtos</h1>
         </div>
-        {canEdit ? (
+        {canSeeStock || canEdit ? (
           <div className="header-tags">
-            <button className="ghost-button" onClick={() => setShowImport(true)}>
-              Importar CSV
-            </button>
-            <button className="primary-button" onClick={() => { setFeedback(''); setForm(blank); }}>
-              Novo produto
-            </button>
+            {canSeeStock ? (
+              <Link to="/estoque" className="ghost-button with-icon">
+                <IconBox />
+                Estoque
+              </Link>
+            ) : null}
+            {canEdit ? (
+              <>
+                <button className="ghost-button" onClick={() => setShowImport(true)}>
+                  Importar CSV
+                </button>
+                <button className="primary-button" onClick={() => openForm(blank)}>
+                  Novo produto
+                </button>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -149,84 +231,193 @@ export function ProductsPage() {
 
       <section className="panel">
         <div className="toolbar">
-          <input
-            className="field-input"
-            placeholder="Buscar por nome, SKU ou código de barras…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-            <option value="">Todas as categorias</option>
-            {categories.data?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <div className="toolbar-field has-icon">
+            <span className="toolbar-icon">
+              <IconSearch />
+            </span>
+            <input
+              className="field-input"
+              placeholder="Buscar por nome, SKU ou código de barras…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className={`toolbar-field is-filter has-icon ${categoryFilter ? 'is-active' : ''}`}>
+            <span className="toolbar-icon">
+              <IconCategory />
+            </span>
+            <select
+              className="field-input"
+              aria-label="Filtrar por categoria"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="">Todas as categorias</option>
+              {categories.data?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <span className="toolbar-caret">
+              <IconCaret />
+            </span>
+          </div>
+
+          <div className="view-switch" role="group" aria-label="Modo de exibição">
+            <button
+              type="button"
+              className={viewMode === 'list' ? 'is-active' : ''}
+              aria-pressed={viewMode === 'list'}
+              title="Lista"
+              onClick={() => chooseView('list')}
+            >
+              <IconList />
+              <span className="sr-only">Lista</span>
+            </button>
+            <button
+              type="button"
+              className={viewMode === 'grid' ? 'is-active' : ''}
+              aria-pressed={viewMode === 'grid'}
+              title="Grade com fotos"
+              onClick={() => chooseView('grid')}
+            >
+              <IconGrid />
+              <span className="sr-only">Grade com fotos</span>
+            </button>
+          </div>
         </div>
 
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Produto</th>
-                <th>SKU</th>
-                <th>Categoria</th>
-                <th style={{ textAlign: 'right' }}>Preço</th>
-                <th style={{ textAlign: 'right' }}>Estoque</th>
-                <th>Status</th>
-                {canEdit ? <th style={{ width: 170 }}></th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {products.data?.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td>
-                    <small>{p.sku}</small>
-                  </td>
-                  <td>{p.category?.name ?? '—'}</td>
-                  <td style={{ textAlign: 'right' }}>{brl(p.price)}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {num(p.stock?.quantity)} {p.unit}
-                  </td>
-                  <td>
-                    <span className={`tag ${p.active ? 'tag-success' : 'tag-warning'}`}>
-                      {p.active ? 'Ativo' : 'Inativo'}
-                    </span>
-                  </td>
-                  {canEdit ? (
-                    <td>
-                      <div className="row-actions">
-                        <button
-                          className="mini-button"
-                          onClick={() => { setFeedback(''); setForm(fromProduct(p)); }}
-                        >
-                          Editar
-                        </button>
-                        {p.active ? (
-                          <button
-                            className="mini-button danger"
-                            onClick={() => { setFeedback(''); setConfirmRemove(p); }}
-                          >
-                            Desativar
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-              {!products.isLoading && products.data?.length === 0 ? (
+        {viewMode === 'list' ? (
+          <div className="table-scroll">
+            <table className="data-table products-table">
+              <thead>
                 <tr>
-                  <td colSpan={canEdit ? 7 : 6} className="muted">
-                    Nenhum produto encontrado.
-                  </td>
+                  <th colSpan={2}>Produto</th>
+                  <th>Categoria</th>
+                  <th style={{ textAlign: 'right' }}>Preço</th>
+                  <th style={{ textAlign: 'right' }}>Estoque</th>
+                  <th>Status</th>
+                  {canEdit ? <th style={{ width: 170 }}></th> : null}
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {products.data?.map((p) => (
+                  <tr key={p.id}>
+                    {/* Coluna própria para a foto: a miniatura fica alinhada em
+                        todas as linhas e o nome não dança conforme o tamanho. */}
+                    <td className="cell-thumb">
+                      <ProductThumb product={p} />
+                    </td>
+                    <td>
+                      <span className="product-name">{p.name}</span>
+                      <small className="product-sku">{p.sku}</small>
+                    </td>
+                    <td>{p.category?.name ?? '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{brl(p.price)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {num(p.stock?.quantity)} {p.unit}
+                    </td>
+                    <td>
+                      <span className={`tag ${p.active ? 'tag-success' : 'tag-warning'}`}>
+                        {p.active ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    {canEdit ? (
+                      <td>
+                        <div className="row-actions">
+                          <button className="mini-button" onClick={() => openForm(fromProduct(p))}>
+                            Editar
+                          </button>
+                          {p.active ? (
+                            <button
+                              className="mini-button danger"
+                              onClick={() => { setFeedback(''); setConfirmRemove(p); }}
+                            >
+                              Desativar
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+                {!products.isLoading && products.data?.length === 0 ? (
+                  <tr>
+                    <td colSpan={canEdit ? 8 : 7} className="muted">
+                      Nenhum produto encontrado.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="product-grid">
+            {products.data?.map((p) => (
+              <article key={p.id} className={`product-card ${p.active ? '' : 'is-inactive'}`}>
+                {canEdit ? (
+                  // A propria foto e o alvo de clique: com o catalogo em grade,
+                  // "essa aqui esta sem foto" e "quero trocar esta foto" sao a
+                  // mesma intencao, e ela nasce olhando para a imagem.
+                  <button
+                    type="button"
+                    className="product-card-photo"
+                    onClick={() => openForm(fromProduct(p))}
+                    aria-label={
+                      productPhotoUrl(p)
+                        ? `Trocar a foto de ${p.name}`
+                        : `Adicionar foto a ${p.name}`
+                    }
+                  >
+                    <ProductThumb product={p} size="xl" />
+                    {productPhotoUrl(p) ? null : <span className="product-card-add">+ foto</span>}
+                  </button>
+                ) : (
+                  <div className="product-card-photo">
+                    <ProductThumb product={p} size="xl" />
+                  </div>
+                )}
+
+                <div className="product-card-body">
+                  <strong className="product-card-name" title={p.name}>
+                    {p.name}
+                  </strong>
+                  <small className="product-sku">{p.sku}</small>
+                  <div className="product-card-meta">
+                    <span className="product-card-price">{brl(p.price)}</span>
+                    <span className="muted">
+                      {num(p.stock?.quantity)} {p.unit}
+                    </span>
+                  </div>
+                  {p.active ? null : <span className="tag tag-warning">Inativo</span>}
+                </div>
+
+                {canEdit ? (
+                  <div className="product-card-actions">
+                    <button className="mini-button" onClick={() => openForm(fromProduct(p))}>
+                      Editar
+                    </button>
+                    {p.active ? (
+                      <button
+                        className="mini-button danger"
+                        onClick={() => { setFeedback(''); setConfirmRemove(p); }}
+                      >
+                        Desativar
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+            {!products.isLoading && products.data?.length === 0 ? (
+              <div className="empty-state">
+                <strong>Nenhum produto encontrado.</strong>
+                <span>Ajuste a busca ou o filtro de categoria.</span>
+              </div>
+            ) : null}
+          </div>
+        )}
       </section>
 
       {form ? (
@@ -263,6 +454,8 @@ export function ProductsPage() {
               {save.error instanceof Error ? save.error.message : 'Erro ao salvar'}
             </div>
           ) : null}
+
+          <ProductPhotoField currentUrl={form.photoUrl} value={photo} onChange={setPhoto} />
 
           <div className="form-grid">
             <label className="field">

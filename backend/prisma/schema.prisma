@@ -196,6 +196,22 @@ enum TaxRegime {
   REGIME_NORMAL
 }
 
+/// Natureza de uma conta financeira: onde o dinheiro da loja fica.
+enum FinancialAccountType {
+  /// Conta bancaria (corrente, poupanca, conta de pagamento).
+  BANCO
+  /// Dinheiro em especie sob controle do caixa/gaveta.
+  CAIXA
+  /// Dinheiro em especie fora do caixa (cofre, fundo fixo).
+  CARTEIRA
+}
+
+/// Se um no do plano de contas classifica entrada ou saida de dinheiro.
+enum FinancialCategoryKind {
+  RECEITA
+  DESPESA
+}
+
 // ---------------------------------------------------------------------------
 // Usuarios / acesso
 // ---------------------------------------------------------------------------
@@ -229,6 +245,7 @@ model User {
   dailyClosings         DailyClosing[]         @relation("DailyClosingClosedBy")
   dailyClosingsReopened DailyClosing[]         @relation("DailyClosingReopenedBy")
   reportSchedules       ReportSchedule[]
+  financialTransfers    AccountTransfer[]
 
   @@index([roleId])
 }
@@ -354,6 +371,8 @@ model Product {
   pricingMode PricingMode @default(UNIT)
   price       Decimal     @db.Decimal(12, 2)
   cost        Decimal?    @db.Decimal(12, 2)
+  /// Foto por URL externa (https://). Usada como reserva quando nao ha foto
+  /// carregada na loja (`photo`), que tem precedencia.
   imageUrl    String?
   active      Boolean     @default(true)
 
@@ -362,11 +381,45 @@ model Product {
   taxGroupId String?
   taxGroup   TaxGroup? @relation(fields: [taxGroupId], references: [id])
 
+  photo          ProductImage?
   stock          StockItem?
   saleItems      SaleItem[]
   stockMovements StockMovement[]
   returnItems    SaleReturnItem[]
   promotions     Promotion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Foto do produto carregada pela loja.
+///
+/// Os bytes ficam no proprio banco (e nao em disco) de proposito: a loja e
+/// unica, o volume e pequeno (um produto = uma foto de ~60 KB) e assim o
+/// backup/restauracao do Postgres ja leva o catalogo inteiro, sem volume
+/// extra para configurar no deploy.
+///
+/// A imagem chega ja recortada em quadrado e recomprimida pelo navegador, em
+/// duas versoes: `data` (exibicao, ate 1000px) e `thumb` (lista/PDV, 200px).
+/// A tabela e separada de Product porque TODA listagem de produto carrega o
+/// registro inteiro: com os bytes na mesma linha, `GET /products` passaria a
+/// trafegar megabytes.
+model ProductImage {
+  id        String  @id @default(uuid())
+  productId String  @unique
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// Identificador opaco que aparece na URL publica da imagem. Trocado a cada
+  /// upload: e o que permite servir com cache imutavel (a URL nova invalida a
+  /// antiga) sem expor o id do produto nem depender de query string.
+  token String @unique
+
+  /// Sempre um tipo raster (image/webp, image/jpeg, image/png) confirmado
+  /// pelos bytes magicos no servidor. SVG e recusado: e documento executavel.
+  contentType String
+  data        Bytes
+  thumb       Bytes
+  byteSize    Int
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -895,6 +948,13 @@ model Receivable {
   canceledAt   DateTime?
   note         String?
 
+  /// Classificacao gerencial opcional (plano de contas de RECEITA e centro de
+  /// custo). Nulo no titulo herdado e no que nasce da venda sem classificacao.
+  categoryId   String?
+  category     FinancialCategory? @relation(fields: [categoryId], references: [id])
+  costCenterId String?
+  costCenter   CostCenter?        @relation(fields: [costCenterId], references: [id])
+
   settlements ReceivableSettlement[]
 
   createdAt DateTime @default(now())
@@ -903,25 +963,32 @@ model Receivable {
   @@index([customerId, status])
   @@index([status, dueDate])
   @@index([saleId])
+  @@index([categoryId])
+  @@index([costCenterId])
 }
 
 /// Baixa (total ou parcial) de um titulo a receber.
 model ReceivableSettlement {
-  id            String        @id @default(uuid())
+  id            String            @id @default(uuid())
   receivableId  String
-  receivable    Receivable    @relation(fields: [receivableId], references: [id], onDelete: Cascade)
-  amount        Decimal       @db.Decimal(12, 2)
+  receivable    Receivable        @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+  amount        Decimal           @db.Decimal(12, 2)
   method        PaymentMethod
   /// Turno em que o dinheiro entrou, quando a baixa foi em especie no balcao.
   cashSessionId String?
-  cashSession   CashSession?  @relation(fields: [cashSessionId], references: [id])
+  cashSession   CashSession?      @relation(fields: [cashSessionId], references: [id])
+  /// Conta financeira em que o dinheiro caiu, quando nao foi pela gaveta
+  /// (deposito, Pix, transferencia). Nulo na baixa em especie do balcao.
+  accountId     String?
+  account       FinancialAccount? @relation(fields: [accountId], references: [id])
   userId        String
-  user          User          @relation(fields: [userId], references: [id])
+  user          User              @relation(fields: [userId], references: [id])
   note          String?
-  createdAt     DateTime      @default(now())
+  createdAt     DateTime          @default(now())
 
   @@index([receivableId])
   @@index([createdAt])
+  @@index([accountId])
 }
 
 model Supplier {
@@ -942,22 +1009,33 @@ model Supplier {
 /// competencia e gerada na baixa, nunca em lote antecipado — projetar doze
 /// meses de aluguel como titulo em aberto suja o fluxo de caixa.
 model Payable {
-  id          String            @id @default(uuid())
-  number      Int               @unique
-  supplierId  String?
-  supplier    Supplier?         @relation(fields: [supplierId], references: [id])
-  description String
-  /// Categoria da despesa (aluguel, energia, folha, mercadoria, ...). Texto
-  /// livre de propósito: cada loja tem o seu plano de contas informal.
-  category    String            @default("Geral")
-  amount      Decimal           @db.Decimal(12, 2)
-  paidAmount  Decimal           @default(0) @db.Decimal(12, 2)
-  dueDate     DateTime
-  status      TitleStatus       @default(ABERTO)
-  recurrence  PayableRecurrence @default(NENHUMA)
-  paidAt      DateTime?
-  canceledAt  DateTime?
-  note        String?
+  id                  String             @id @default(uuid())
+  number              Int                @unique
+  supplierId          String?
+  supplier            Supplier?          @relation(fields: [supplierId], references: [id])
+  description         String
+  /// Categoria da despesa como TEXTO LIVRE (aluguel, energia, folha, ...).
+  /// Legado do plano de contas informal; convive com `financialCategoryId`, que
+  /// e a classificacao estruturada. Migrar o texto para o plano numa rodada
+  /// futura.
+  category            String             @default("Geral")
+  /// Plano de contas de DESPESA e centro de custo — classificacao gerencial
+  /// opcional. Nulo na despesa herdada.
+  financialCategoryId String?
+  financialCategory   FinancialCategory? @relation(fields: [financialCategoryId], references: [id])
+  costCenterId        String?
+  costCenter          CostCenter?        @relation(fields: [costCenterId], references: [id])
+  amount              Decimal            @db.Decimal(12, 2)
+  paidAmount          Decimal            @default(0) @db.Decimal(12, 2)
+  dueDate             DateTime
+  /// Data de competencia (regime de competencia), quando difere do vencimento.
+  /// Nulo cai de volta em `dueDate` para efeito de relatorio.
+  competencia         DateTime?
+  status              TitleStatus        @default(ABERTO)
+  recurrence          PayableRecurrence  @default(NENHUMA)
+  paidAt              DateTime?
+  canceledAt          DateTime?
+  note                String?
 
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id])
@@ -970,24 +1048,123 @@ model Payable {
   @@index([status, dueDate])
   @@index([supplierId])
   @@index([category])
+  @@index([financialCategoryId])
+  @@index([costCenterId])
 }
 
 model PayableSettlement {
-  id            String        @id @default(uuid())
+  id            String            @id @default(uuid())
   payableId     String
-  payable       Payable       @relation(fields: [payableId], references: [id], onDelete: Cascade)
-  amount        Decimal       @db.Decimal(12, 2)
+  payable       Payable           @relation(fields: [payableId], references: [id], onDelete: Cascade)
+  amount        Decimal           @db.Decimal(12, 2)
   method        PaymentMethod
   /// Turno de onde o dinheiro saiu, quando a despesa foi paga da gaveta.
   cashSessionId String?
-  cashSession   CashSession?  @relation(fields: [cashSessionId], references: [id])
+  cashSession   CashSession?      @relation(fields: [cashSessionId], references: [id])
+  /// Conta financeira de onde o dinheiro saiu, quando nao foi da gaveta
+  /// (debito em conta, Pix, transferencia). Nulo no pagamento em especie.
+  accountId     String?
+  account       FinancialAccount? @relation(fields: [accountId], references: [id])
   userId        String
-  user          User          @relation(fields: [userId], references: [id])
+  user          User              @relation(fields: [userId], references: [id])
   note          String?
-  createdAt     DateTime      @default(now())
+  createdAt     DateTime          @default(now())
 
   @@index([payableId])
   @@index([createdAt])
+  @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Nucleo financeiro — contas, plano de contas, centros de custo, transferencias
+//
+// Contas guardam ONDE o dinheiro fica; o plano de contas e os centros de custo
+// classificam POR QUE ele entrou ou saiu. O saldo de uma conta e SEMPRE
+// derivado (abertura + baixas com conta + transferencias), nunca um contador
+// gravado — dois lugares para o mesmo numero divergem.
+// ---------------------------------------------------------------------------
+
+/// Uma conta onde a loja guarda dinheiro: banco, caixa em especie ou carteira.
+/// O saldo nao e armazenado; e calculado a partir de `openingBalance`, das
+/// baixas de titulo que apontam para a conta e das transferencias.
+model FinancialAccount {
+  id             String               @id @default(uuid())
+  name           String
+  type           FinancialAccountType
+  /// Agencia e numero da conta — exibicao apenas, texto livre.
+  bankBranch     String?
+  bankNumber     String?
+  /// Ponto de partida do saldo calculado e a data a que ele se refere.
+  openingBalance Decimal              @default(0) @db.Decimal(14, 2)
+  openingDate    DateTime             @default(now())
+  active         Boolean              @default(true)
+  archivedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  receivableSettlements ReceivableSettlement[]
+  payableSettlements    PayableSettlement[]
+  transfersOut          AccountTransfer[]      @relation("TransferFrom")
+  transfersIn           AccountTransfer[]      @relation("TransferTo")
+
+  @@index([active])
+}
+
+/// No do plano de contas gerencial. `parentId` nulo e uma raiz; a arvore separa
+/// RECEITA de DESPESA pelo `kind` e um filho herda o `kind` do pai.
+model FinancialCategory {
+  id        String                @id @default(uuid())
+  kind      FinancialCategoryKind
+  name      String
+  /// Codigo contabil livre (ex.: "3.1.02"), opcional.
+  code      String?
+  parentId  String?
+  parent    FinancialCategory?    @relation("CategoryTree", fields: [parentId], references: [id])
+  children  FinancialCategory[]   @relation("CategoryTree")
+  active    Boolean               @default(true)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  payables    Payable[]
+  receivables Receivable[]
+
+  @@unique([kind, name, parentId])
+  @@index([kind, active])
+  @@index([parentId])
+}
+
+/// Centro de custo: por qual area/departamento a receita ou a despesa responde.
+model CostCenter {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payables    Payable[]
+  receivables Receivable[]
+
+  @@index([active])
+}
+
+/// Transferencia de dinheiro entre duas contas da propria loja. Nao e receita
+/// nem despesa: sai de uma conta e entra na outra pelo mesmo valor.
+model AccountTransfer {
+  id            String           @id @default(uuid())
+  fromAccountId String
+  fromAccount   FinancialAccount @relation("TransferFrom", fields: [fromAccountId], references: [id])
+  toAccountId   String
+  toAccount     FinancialAccount @relation("TransferTo", fields: [toAccountId], references: [id])
+  amount        Decimal          @db.Decimal(14, 2)
+  date          DateTime         @default(now())
+  note          String?
+  userId        String
+  user          User             @relation(fields: [userId], references: [id])
+  createdAt     DateTime         @default(now())
+
+  @@index([fromAccountId, date])
+  @@index([toAccountId, date])
 }
 
 // ---------------------------------------------------------------------------

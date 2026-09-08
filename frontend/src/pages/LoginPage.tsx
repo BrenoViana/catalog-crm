@@ -23,8 +23,14 @@ export function LoginPage() {
     b?.logoDarkUrl ||
     null;
   const storeName = b?.tradeName || b?.legalName || 'Catalog';
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin');
+  // Nunca embutir credencial no bundle. O usuário só é pré-preenchido em
+  // desenvolvimento, e ainda assim apenas se VITE_DEV_USER existir no .env local.
+  // A senha nunca é pré-preenchida — nem em dev — para não treinar o operador a
+  // não digitá-la.
+  const [username, setUsername] = useState(
+    import.meta.env.DEV ? (import.meta.env.VITE_DEV_USER ?? '') : '',
+  );
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -69,33 +75,44 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="auth-form">
-          <label>
+          <label htmlFor="login-username">
             Usuário
-            <input 
-              value={username} 
+            <input
+              id="login-username"
+              name="username"
+              autoComplete="username"
+              autoFocus
+              value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
             />
           </label>
 
-          <label>
+          <label htmlFor="login-password">
             Senha
             <input
+              id="login-password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
             />
           </label>
 
-          {error ? <p className="auth-error">{error}</p> : null}
+          {error ? (
+            <p className="auth-error" role="alert">
+              {error}
+            </p>
+          ) : null}
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className="primary-button large-button"
             disabled={loading}
           >
-            {loading ? 'Autenticando...' : 'Entrar no sistema'}
+            {loading ? 'Autenticando…' : 'Entrar no sistema'}
           </button>
         </form>
       </div>

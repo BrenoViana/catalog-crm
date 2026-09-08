@@ -34,12 +34,12 @@ TypeScript.
 | --- | --- |
 | `auth` | Login com JWT e rate limit por IP |
 | `access` | Permissões granulares no banco, papéis e vale de supervisor |
-| `products` / `categories` | Catálogo, busca por trigram (tolera acento e erro de digitação) |
+| `products` / `categories` | Catálogo, busca por trigram (tolera acento e erro de digitação), foto do produto (recorte no navegador, bytes no banco) |
 | `inventory` | Estoque, movimentos e ajustes com trilha |
 | `sales` | Venda de balcão, desconto com teto por papel, devolução e troca parcial |
 | `payments` | Gateway com provedores de dinheiro e eletrônico (Pix/cartão) |
 | `cash` | Turno de caixa, sangria/suprimento, leitura X e fechamento Z |
-| `finance` | Contas a pagar/receber, crediário, fluxo de caixa e fechamento do dia |
+| `finance` | Contas a pagar/receber, crediário, contas financeiras, plano de contas e centros de custo, transferências, dashboard financeiro, fluxo de caixa e fechamento do dia |
 | `loyalty` | Crédito e cashback do cliente |
 | `promotions` | Motor de campanhas aplicado por item da venda |
 | `fiscal` | NFC-e com máquina de estados do documento fiscal |
@@ -128,6 +128,14 @@ travas que valem conhecer antes de fazer deploy:
 - Toda operação financeira — fechamento do dia, baixa de título, ajuste de
   fidelidade, sangria, cancelamento — vai para o `AuditLog`, com quem fez e
   quem liberou.
+- **A foto do produto é servida por rota pública** (`GET /api/product-images/:token`):
+  `<img src>` não manda header `Authorization`, e o token do app vive em
+  `localStorage`, sem cookie de sessão. O que protege é o endereço — 16 bytes
+  aleatórios, sem relação com o id do produto, renovados a cada upload e nunca
+  listados sem autenticação. Guardar ali só foto de vitrine, nunca imagem com
+  dado pessoal (documento, ficha de cliente). O upload continua exigindo
+  `products.manage`, aceita apenas PNG/JPEG/WebP com os bytes mágicos conferidos
+  no servidor (SVG é recusado) e tem teto de ~500 KB por imagem.
 
 Mudanças passam por uma revisão de segurança antes do merge, e os achados em
 aberto ficam registrados em `.claude/agents/baseline.md`.

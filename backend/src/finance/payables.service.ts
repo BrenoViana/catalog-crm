@@ -98,6 +98,13 @@ export class PayablesService {
     if (Number.isNaN(dueDate.getTime())) {
       throw new BadRequestException('Vencimento inválido.');
     }
+    let competencia: Date | null = null;
+    if (dto.competencia) {
+      competencia = new Date(dto.competencia);
+      if (Number.isNaN(competencia.getTime())) {
+        throw new BadRequestException('Competência inválida.');
+      }
+    }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PAYABLE_NUMBER_LOCK})`;
@@ -111,8 +118,11 @@ export class PayablesService {
           supplierId: dto.supplierId ?? null,
           description: dto.description,
           category: dto.category?.trim() || 'Geral',
+          financialCategoryId: dto.financialCategoryId ?? null,
+          costCenterId: dto.costCenterId ?? null,
           amount: D(dto.amount),
           dueDate,
+          competencia,
           recurrence: dto.recurrence ?? 'NENHUMA',
           note: dto.note ?? null,
           createdById: userId,
@@ -144,6 +154,8 @@ export class PayablesService {
       take: Math.min(query.take ?? 200, 500),
       include: {
         supplier: { select: { id: true, name: true } },
+        financialCategory: { select: { id: true, name: true, kind: true } },
+        costCenter: { select: { id: true, name: true } },
         settlements: {
           orderBy: { createdAt: 'desc' },
           take: 20,
@@ -242,6 +254,9 @@ export class PayablesService {
           amount,
           method: dto.method,
           cashSessionId: openSession?.id ?? null,
+          // Conta so quando a baixa nao foi pela gaveta: dinheiro da gaveta ja
+          // esta no dominio do caixa, contar aqui tambem seria em dobro.
+          accountId: openSession ? null : (dto.accountId ?? null),
           userId,
           note: dto.note ?? null,
         },
@@ -284,6 +299,8 @@ export class PayablesService {
             supplierId: title.supplierId,
             description: title.description,
             category: title.category,
+            financialCategoryId: title.financialCategoryId,
+            costCenterId: title.costCenterId,
             amount: title.amount,
             dueDate: advance(title.dueDate, title.recurrence),
             recurrence: title.recurrence,

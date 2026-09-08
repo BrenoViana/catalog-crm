@@ -2,14 +2,14 @@
 .chart-grid {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .bars {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   height: 220px;
   padding-top: 14px;
 }
@@ -20,7 +20,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   height: 100%;
 }
 
@@ -28,22 +28,19 @@
   width: 100%;
   max-width: 44px;
   min-height: 16px;
-  border-radius: 10px 10px 0 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
   background: linear-gradient(180deg, var(--bar-from) 0%, var(--bar-to) 100%);
-  box-shadow: 0 10px 20px var(--primary-glow);
+  box-shadow: 0 8px 18px var(--primary-glow);
+  transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.bar-group:hover .bar {
+  filter: brightness(1.12);
+  transform: scaleY(1.02);
+  transform-origin: bottom;
 }
 
 a.tag-link { text-decoration: none; cursor: pointer; }
 a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-soft); }
-
-.skeleton {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.7; }
-}
 
 @media (max-width: 900px) {
   .chart-grid { grid-template-columns: 1fr; }
@@ -53,7 +50,7 @@ a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-
    A cor da borda esquerda carrega a severidade — quem passa os olhos precisa
    distinguir "caixa aberto há 13 horas" de "crediário vencido" sem ler. */
 .ops-alerts {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .ops-alert-list {
@@ -61,32 +58,33 @@ a.tag-link:hover { border-color: var(--accent-border); background: var(--accent-
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .ops-alert {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 10px 14px;
-  border-left: 3px solid var(--border, #d4d4d8);
-  background: var(--surface-muted, rgba(0, 0, 0, .02));
-  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-muted);
+  border-radius: var(--radius-xs);
 }
 
 .ops-alert p {
   margin: 2px 0 0;
-  font-size: 13px;
-  color: var(--text-muted, #6b7280);
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 .ops-alert-alto {
-  border-left-color: var(--danger, #b91c1c);
+  border-left-color: var(--danger);
 }
 
 .ops-alert-medio {
-  border-left-color: var(--warning, #b45309);
+  border-left-color: var(--warning);
 }
 
 @media (max-width: 700px) {

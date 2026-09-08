@@ -1,0 +1,57 @@
+/* Miniatura do produto — mesma caixa com ou sem foto, para a lista não pular
+   de altura conforme o catálogo vai sendo fotografado. */
+
+.product-thumb {
+  --thumb-size: 40px;
+  flex: 0 0 auto;
+  display: block;
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  /* Sem isto o navegador pode encolher a caixa dentro de um flex apertado
+     (linha de carrinho no PDV) e a foto deixa de ser quadrada. */
+  min-width: var(--thumb-size);
+}
+
+.product-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Fundo claro fixo: a foto vem com fundo branco do editor e mudar isso com o
+     tema faria a borda da imagem "vazar" no escuro. */
+  background: #ffffff;
+}
+
+.product-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  font-size: calc(var(--thumb-size) * 0.34);
+  user-select: none;
+}
+
+/* Coluna dedicada a miniatura em tabelas de dados: a foto fica alinhada em
+   todas as linhas e o texto da coluna seguinte comeca sempre no mesmo lugar. */
+.data-table td.cell-thumb {
+  width: 56px;
+  padding-right: 0;
+}
+
+.product-thumb.is-sm { --thumb-size: 40px; }
+.product-thumb.is-md { --thumb-size: 48px; }
+.product-thumb.is-lg { --thumb-size: 72px; border-radius: var(--radius-md); }
+.product-thumb.is-xl {
+  --thumb-size: 100%;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: var(--radius-md);
+}

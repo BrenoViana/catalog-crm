@@ -1,11 +1,12 @@
 import './SettingsPage.css';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { UsersPermissionsModal } from '../components/UsersPermissionsModal';
 import { PromotionsModal } from '../components/PromotionsModal';
 import TerminalsSettings from '../components/TerminalsSettings';
+import { useLicense } from '../lib/useLicense';
 import {
   appSettingsApi,
   licenseApi,
@@ -13,6 +14,29 @@ import {
   type AppSettingRow,
   type StoreSettings,
 } from '../lib/api-client';
+
+/** Abas da página. `loja` é a padrão (ausência do parâmetro `?tab=`). */
+type SettingsTab =
+  | 'loja'
+  | 'fiscal'
+  | 'financeiro'
+  | 'promocoes'
+  | 'usuarios'
+  | 'sistema'
+  | 'licenca';
+
+const TAB_SLUG: Record<SettingsTab, string> = {
+  loja: '',
+  fiscal: 'fiscal',
+  financeiro: 'financeiro',
+  promocoes: 'promocoes',
+  usuarios: 'usuarios',
+  sistema: 'sistema',
+  licenca: 'licenca',
+};
+
+/** Grupos do catálogo de AppSetting que aparecem na aba "Financeiro". */
+const FINANCE_SETTING_GROUPS = ['Financeiro', 'Fidelidade'];
 
 /** Durante a edição alguns campos numéricos carregam o texto cru do input. */
 type Form = { [K in keyof StoreSettings]?: StoreSettings[K] | string };
@@ -188,6 +212,111 @@ export function SettingsPage() {
 
   const set = (k: keyof StoreSettings, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  const { allows } = useLicense();
+
+  const TABS = useMemo(() => {
+    const base: Array<{ key: SettingsTab; label: string; hint: string }> = [
+      { key: 'loja', label: 'Loja', hint: 'Identidade visual, dados do emitente da NFC-e e política de desconto.' },
+      { key: 'fiscal', label: 'Fiscal e terminais', hint: 'Caixas e dispositivos, faixas de contingência e o modo de contingência da NFC-e.' },
+    ];
+    if (allows('financeiro')) {
+      base.push({
+        key: 'financeiro',
+        label: 'Financeiro',
+        hint: 'Parâmetros do crediário, do fluxo de caixa e do programa de fidelidade.',
+      });
+    }
+    base.push(
+      { key: 'promocoes', label: 'Promoções', hint: 'Campanhas de desconto automático por produto, categoria ou catálogo.' },
+      { key: 'usuarios', label: 'Usuários e permissões', hint: 'Papéis, permissões granulares por usuário e exceções individuais.' },
+      { key: 'sistema', label: 'Sistema', hint: 'Limites de login, de venda e da operação de caixa.' },
+      { key: 'licenca', label: 'Licença', hint: 'Chave de ativação e situação da licença.' },
+    );
+    return base;
+  }, [allows]);
+
+  const slug = searchParams.get('tab') ?? '';
+  const tab: SettingsTab =
+    (TABS.find((t) => TAB_SLUG[t.key] === slug)?.key ?? 'loja') as SettingsTab;
+  const setTab = (next: SettingsTab) => {
+    const params = new URLSearchParams(searchParams);
+    if (TAB_SLUG[next]) params.set('tab', TAB_SLUG[next]);
+    else params.delete('tab');
+    setSearchParams(params, { replace: true });
+  };
+
+  const systemGroups = (groups: string[]) => {
+    if (system.isLoading) return <p className="muted">Carregando…</p>;
+    const rows = (system.data ?? []).filter((r) => groups.includes(r.group));
+    return (
+      <>
+        {[...new Set(rows.map((r) => r.group))].map((group) => (
+          <div key={group} className="settings-block">
+            <h3 className="turn-report-sub">{group}</h3>
+            <div className="form-grid">
+              {rows
+                .filter((r) => r.group === group)
+                .map((row) => (
+                  <label className="field" key={row.key}>
+                    <span>{row.label}</span>
+                    {row.options ? (
+                      <select
+                        value={systemValue(row)}
+                        onChange={(e) =>
+                          setSystemDraft((d) => ({ ...d, [row.key]: e.target.value }))
+                        }
+                      >
+                        {row.options.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        inputMode={row.type === 'number' ? 'decimal' : 'text'}
+                        value={systemValue(row)}
+                        onChange={(e) =>
+                          setSystemDraft((d) => ({ ...d, [row.key]: e.target.value }))
+                        }
+                      />
+                    )}
+                    {row.description ? (
+                      <small className="muted">{row.description}</small>
+                    ) : null}
+                  </label>
+                ))}
+            </div>
+          </div>
+        ))}
+        {saveSystem.isError ? (
+          <div className="error-message">
+            {saveSystem.error instanceof Error
+              ? saveSystem.error.message
+              : 'Falha ao salvar.'}
+          </div>
+        ) : null}
+        <button
+          className="ghost-button"
+          disabled={Object.keys(systemDraft).length === 0 || saveSystem.isPending}
+          onClick={() => saveSystem.mutate()}
+        >
+          {saveSystem.isPending ? 'Salvando…' : 'Salvar configurações'}
+        </button>
+      </>
+    );
+  };
+
+  const otherSystemGroups = useMemo(
+    () =>
+      [
+        ...new Set(
+          (system.data ?? [])
+            .map((r) => r.group)
+            .filter((g) => !FINANCE_SETTING_GROUPS.includes(g)),
+        ),
+      ],
+    [system.data],
+  );
+
   return (
     <Layout>
       <div className="page-header">
@@ -195,18 +324,39 @@ export function SettingsPage() {
           <p className="eyebrow">Sistema</p>
           <h1>Configurações</h1>
         </div>
-        <button className="primary-button" disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? 'Salvando…' : 'Salvar dados da loja'}
-        </button>
+        {tab === 'loja' ? (
+          <button className="primary-button" disabled={save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? 'Salvando…' : 'Salvar dados da loja'}
+          </button>
+        ) : null}
       </div>
 
-      {save.isSuccess ? <div className="success-message">Dados da loja salvos.</div> : null}
-      {save.isError ? (
+      <nav className="report-tabs" aria-label="Seções das configurações">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`pill-button ${tab === t.key ? 'active' : ''}`}
+            aria-current={tab === t.key ? 'page' : undefined}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      <p className="muted report-hint">{TABS.find((t) => t.key === tab)?.hint}</p>
+
+      {tab === 'loja' && save.isSuccess ? (
+        <div className="success-message">Dados da loja salvos.</div>
+      ) : null}
+      {tab === 'loja' && save.isError ? (
         <div className="error-message">
           {save.error instanceof Error ? save.error.message : 'Falha ao salvar.'}
         </div>
       ) : null}
 
+      {tab === 'loja' ? (
+        <>
       <section className="panel" style={{ marginBottom: 20 }}>
         <div className="panel-header">
           <h2>Identidade visual</h2>
@@ -281,8 +431,6 @@ export function SettingsPage() {
         </p>
       </section>
 
-      <TerminalsSettings />
-
       <section className="panel" style={{ marginBottom: 20 }}>
         <div className="panel-header">
           <h2>Política de desconto</h2>
@@ -302,132 +450,97 @@ export function SettingsPage() {
           Gerente e administrador não têm limite.
         </p>
       </section>
+        </>
+      ) : null}
 
-      <section className="panel" style={{ marginBottom: 20 }}>
-        <div className="panel-header">
-          <h2>Promoções</h2>
-        </div>
-        <p className="muted">
-          Campanhas de desconto automático por produto, categoria ou catálogo inteiro,
-          com vigência e prioridade. O desconto é aplicado pelo servidor no fechamento
-          da venda — o operador não precisa digitar nada, e a campanha não consome o
-          teto de desconto dele.
-        </p>
-        <button
-          className="primary-button"
-          style={{ marginTop: 12 }}
-          onClick={() => setPromoOpen(true)}
-        >
-          Gerenciar promoções
-        </button>
-      </section>
+      {tab === 'fiscal' ? <TerminalsSettings /> : null}
 
-      <section className="panel" style={{ marginBottom: 20 }}>
-        <div className="panel-header">
-          <h2>Usuários e permissões</h2>
-        </div>
-        <p className="muted">
-          Papéis, permissões granulares por usuário e exceções individuais. Tudo é
-          gravado no banco — nenhum acesso fica preso no código.
-        </p>
-        <button
-          className="primary-button"
-          style={{ marginTop: 12 }}
-          onClick={() => setAccessOpen(true)}
-        >
-          Abrir usuários e permissões
-        </button>
-      </section>
+      {tab === 'financeiro' ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Parâmetros do financeiro</h2>
+          </div>
+          {systemGroups(FINANCE_SETTING_GROUPS)}
+        </section>
+      ) : null}
 
-      <section className="panel" style={{ marginBottom: 20 }}>
-        <div className="panel-header">
-          <h2>Configurações do sistema</h2>
-        </div>
-        {system.isLoading ? (
-          <p className="muted">Carregando…</p>
-        ) : (
-          <>
-            {[...new Set((system.data ?? []).map((r) => r.group))].map((group) => (
-              <div key={group} className="settings-block">
-                <h3 className="turn-report-sub">{group}</h3>
-                <div className="form-grid">
-                  {(system.data ?? [])
-                    .filter((r) => r.group === group)
-                    .map((row) => (
-                      <label className="field" key={row.key}>
-                        <span>{row.label}</span>
-                        {row.options ? (
-                          <select
-                            value={systemValue(row)}
-                            onChange={(e) =>
-                              setSystemDraft((d) => ({ ...d, [row.key]: e.target.value }))
-                            }
-                          >
-                            {row.options.map((o) => (
-                              <option key={o} value={o}>{o}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            inputMode={row.type === 'number' ? 'decimal' : 'text'}
-                            value={systemValue(row)}
-                            onChange={(e) =>
-                              setSystemDraft((d) => ({ ...d, [row.key]: e.target.value }))
-                            }
-                          />
-                        )}
-                        {row.description ? (
-                          <small className="muted">{row.description}</small>
-                        ) : null}
-                      </label>
-                    ))}
-                </div>
-              </div>
-            ))}
-            {saveSystem.isError ? (
-              <div className="error-message">
-                {saveSystem.error instanceof Error
-                  ? saveSystem.error.message
-                  : 'Falha ao salvar.'}
-              </div>
-            ) : null}
-            <button
-              className="ghost-button"
-              disabled={Object.keys(systemDraft).length === 0 || saveSystem.isPending}
-              onClick={() => saveSystem.mutate()}
-            >
-              {saveSystem.isPending ? 'Salvando…' : 'Salvar configurações do sistema'}
-            </button>
-          </>
-        )}
-      </section>
+      {tab === 'promocoes' ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Promoções</h2>
+          </div>
+          <p className="muted">
+            Campanhas de desconto automático por produto, categoria ou catálogo inteiro,
+            com vigência e prioridade. O desconto é aplicado pelo servidor no fechamento
+            da venda — o operador não precisa digitar nada, e a campanha não consome o
+            teto de desconto dele.
+          </p>
+          <button
+            className="primary-button"
+            style={{ marginTop: 12 }}
+            onClick={() => setPromoOpen(true)}
+          >
+            Gerenciar promoções
+          </button>
+        </section>
+      ) : null}
 
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Licença</h2>
-        </div>
-        <div className="settings-row">
-          <span>Chave atual</span>
-          <strong>{license.data?.key || '—'}</strong>
-        </div>
-        <div className="settings-row">
-          <span>Situação</span>
-          <span className={`tag ${license.data?.active ? 'tag-success' : 'tag-warning'}`}>
-            {license.data?.active ? 'Ativa' : 'Inativa'}
-          </span>
-        </div>
-        <label className="field" style={{ marginTop: 16 }}>
-          <span>Nova chave de ativação</span>
-          <input value={licenseKey} onChange={(e) => setLicenseKey(e.target.value)} />
-        </label>
-        <button
-          className="ghost-button"
-          disabled={!licenseKey || activate.isPending}
-          onClick={() => activate.mutate()}
-        >
-          {activate.isPending ? 'Ativando…' : 'Ativar'}
-        </button>
-      </section>
+      {tab === 'usuarios' ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Usuários e permissões</h2>
+          </div>
+          <p className="muted">
+            Papéis, permissões granulares por usuário e exceções individuais. Tudo é
+            gravado no banco — nenhum acesso fica preso no código.
+          </p>
+          <button
+            className="primary-button"
+            style={{ marginTop: 12 }}
+            onClick={() => setAccessOpen(true)}
+          >
+            Abrir usuários e permissões
+          </button>
+        </section>
+      ) : null}
+
+      {tab === 'sistema' ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Configurações do sistema</h2>
+          </div>
+          {systemGroups(otherSystemGroups)}
+        </section>
+      ) : null}
+
+      {tab === 'licenca' ? (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Licença</h2>
+          </div>
+          <div className="settings-row">
+            <span>Chave atual</span>
+            <strong>{license.data?.key || '—'}</strong>
+          </div>
+          <div className="settings-row">
+            <span>Situação</span>
+            <span className={`tag ${license.data?.active ? 'tag-success' : 'tag-warning'}`}>
+              {license.data?.active ? 'Ativa' : 'Inativa'}
+            </span>
+          </div>
+          <label className="field" style={{ marginTop: 16 }}>
+            <span>Nova chave de ativação</span>
+            <input value={licenseKey} onChange={(e) => setLicenseKey(e.target.value)} />
+          </label>
+          <button
+            className="ghost-button"
+            disabled={!licenseKey || activate.isPending}
+            onClick={() => activate.mutate()}
+          >
+            {activate.isPending ? 'Ativando…' : 'Ativar'}
+          </button>
+        </section>
+      ) : null}
 
       {accessOpen ? <UsersPermissionsModal onClose={() => setAccessOpen(false)} /> : null}
       {promoOpen ? <PromotionsModal onClose={() => setPromoOpen(false)} /> : null}

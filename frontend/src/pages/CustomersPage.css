@@ -1,0 +1,187 @@
+/* Clientes: painel de aniversariantes em grade de cards. */
+
+.birthday-panel .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.birthday-panel .panel-header h2 {
+  margin: 0 0 2px;
+}
+
+.birthday-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Navegação de mês: setas + nome do mês num controle só, formato pílula. */
+.month-nav {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--chip-bg);
+}
+
+.month-nav button {
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 7px 13px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.month-nav button:hover {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.month-nav select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-align: center;
+  text-align-last: center;
+  padding: 6px 4px;
+  min-width: 116px;
+  cursor: pointer;
+}
+.month-nav select:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-sm);
+}
+
+.birthday-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.birthday-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.birthday-card {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-3);
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.birthday-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+.birthday-card.is-today {
+  border-color: var(--accent-border);
+  background: var(--accent-softer);
+}
+
+.birthday-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.birthday-avatar {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--on-primary);
+}
+
+.birthday-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.birthday-name {
+  color: var(--text-strong);
+  font-weight: 600;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.birthday-when {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.birthday-card.is-today .birthday-when {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.birthday-daypill {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  min-width: 46px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  color: var(--text-strong);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.birthday-daypill small {
+  margin-top: 2px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.birthday-card.is-today .birthday-daypill {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--text-strong);
+}
+
+.birthday-contacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+.birthday-chip {
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  text-decoration: none;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.birthday-chip:hover {
+  border-color: var(--accent-border);
+  color: var(--text-strong);
+}

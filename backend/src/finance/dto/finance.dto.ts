@@ -42,6 +42,17 @@ export enum TitleStatusDto {
   CANCELADO = 'CANCELADO',
 }
 
+export enum FinancialAccountTypeDto {
+  BANCO = 'BANCO',
+  CAIXA = 'CAIXA',
+  CARTEIRA = 'CARTEIRA',
+}
+
+export enum FinancialCategoryKindDto {
+  RECEITA = 'RECEITA',
+  DESPESA = 'DESPESA',
+}
+
 // ------------------------------------------------------------- A receber
 
 /** Titulo avulso: renegociacao, acerto de conta, venda antiga migrada. */
@@ -69,6 +80,15 @@ export class CreateReceivableDto {
   @Max(60)
   installments?: number;
 
+  /** Plano de contas de RECEITA (classificacao estruturada, opcional). */
+  @IsOptional()
+  @IsUUID()
+  financialCategoryId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  costCenterId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)
@@ -82,6 +102,11 @@ export class SettleTitleDto {
 
   @IsEnum(SettlementMethodDto)
   method: SettlementMethodDto;
+
+  /** Conta financeira em que o dinheiro entrou/saiu, quando nao foi pela gaveta. */
+  @IsOptional()
+  @IsUUID()
+  accountId?: string;
 
   @IsOptional()
   @IsString()
@@ -150,12 +175,26 @@ export class CreatePayableDto {
   @MaxLength(60)
   category?: string;
 
+  /** Plano de contas de DESPESA (classificacao estruturada, opcional). */
+  @IsOptional()
+  @IsUUID()
+  financialCategoryId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  costCenterId?: string;
+
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   amount: number;
 
   @IsDateString()
   dueDate: string;
+
+  /** Data de competencia, quando difere do vencimento. */
+  @IsOptional()
+  @IsDateString()
+  competencia?: string;
 
   @IsOptional()
   @IsEnum(PayableRecurrenceDto)
@@ -244,4 +283,138 @@ export class DayQueryDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'A data deve estar no formato AAAA-MM-DD.' })
   date?: string;
+}
+
+// -------------------------------------------------- Nucleo financeiro
+
+export class CreateFinancialAccountDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  name: string;
+
+  @IsEnum(FinancialAccountTypeDto)
+  type: FinancialAccountTypeDto;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  bankBranch?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  bankNumber?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  openingBalance?: number;
+
+  @IsOptional()
+  @IsDateString()
+  openingDate?: string;
+}
+
+export class UpdateFinancialAccountDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  name?: string;
+
+  @IsOptional()
+  @IsEnum(FinancialAccountTypeDto)
+  type?: FinancialAccountTypeDto;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  bankBranch?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  bankNumber?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  openingBalance?: number;
+
+  @IsOptional()
+  @IsDateString()
+  openingDate?: string;
+}
+
+export class CreateFinancialCategoryDto {
+  /** Obrigatorio para raiz; herdado do pai quando ha `parentId`. */
+  @IsOptional()
+  @IsEnum(FinancialCategoryKindDto)
+  kind?: FinancialCategoryKindDto;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  code?: string;
+
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
+}
+
+export class UpdateFinancialCategoryDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  code?: string;
+}
+
+export class CostCenterDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  code?: string;
+}
+
+export class CreateTransferDto {
+  @IsUUID()
+  fromAccountId: string;
+
+  @IsUUID()
+  toAccountId: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsPositive()
+  amount: number;
+
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  note?: string;
+}
+
+/** Filtro do plano de contas por natureza. */
+export class CategoryTreeQueryDto {
+  @IsOptional()
+  @IsEnum(FinancialCategoryKindDto)
+  kind?: FinancialCategoryKindDto;
 }

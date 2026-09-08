@@ -1,8 +1,10 @@
+import './CustomersPage.css';
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { CustomerCreditLoyalty } from '../components/CustomerCreditLoyalty';
 import { Modal } from '../components/Modal';
+import { IconCake, IconCaret, IconFilter, IconSearch } from '../components/ui-icons';
 import {
   CustomerFormModal,
   SEGMENT_LABEL,
@@ -10,9 +12,10 @@ import {
   blankCustomerForm,
   fromCustomer,
 } from '../components/CustomerFormModal';
-import { customersApi, type CustomerSegment } from '../lib/api-client';
+import { customersApi, type BirthdayCustomer, type CustomerSegment } from '../lib/api-client';
 import { brl, dateOnly, dateTime } from '../lib/format';
 import { downloadText, toCsv } from '../lib/download';
+import { whatsappUrl } from '../lib/receipt-share';
 
 const MONTHS = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -63,8 +66,13 @@ export function CustomersPage() {
           <h1>Clientes</h1>
         </div>
         <div className="header-tags">
-          <button className="ghost-button" onClick={() => setShowBirthdays((s) => !s)}>
-            🎂 Aniversariantes
+          <button
+            className="ghost-button with-icon"
+            aria-pressed={showBirthdays}
+            onClick={() => setShowBirthdays((s) => !s)}
+          >
+            <IconCake />
+            Aniversariantes
           </button>
           <button className="primary-button" onClick={() => setCreating(true)}>
             Novo cliente
@@ -82,18 +90,36 @@ export function CustomersPage() {
 
       <section className="panel">
         <div className="toolbar">
-          <input
-            className="field-input"
-            placeholder="Buscar por nome, CPF ou telefone…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select value={segment} onChange={(e) => setSegment(e.target.value as CustomerSegment | '')}>
-            <option value="">Todos os segmentos</option>
-            {SEGMENTS.map((s) => (
-              <option key={s} value={s}>{SEGMENT_LABEL[s]}</option>
-            ))}
-          </select>
+          <div className="toolbar-field has-icon">
+            <span className="toolbar-icon">
+              <IconSearch />
+            </span>
+            <input
+              className="field-input"
+              placeholder="Buscar por nome, CPF ou telefone…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className={`toolbar-field is-filter has-icon ${segment ? 'is-active' : ''}`}>
+            <span className="toolbar-icon">
+              <IconFilter />
+            </span>
+            <select
+              className="field-input"
+              aria-label="Filtrar por segmento"
+              value={segment}
+              onChange={(e) => setSegment(e.target.value as CustomerSegment | '')}
+            >
+              <option value="">Todos os segmentos</option>
+              {SEGMENTS.map((s) => (
+                <option key={s} value={s}>{SEGMENT_LABEL[s]}</option>
+              ))}
+            </select>
+            <span className="toolbar-caret">
+              <IconCaret />
+            </span>
+          </div>
           <button
             className="ghost-button"
             disabled={rows.length === 0}
@@ -169,6 +195,50 @@ export function CustomersPage() {
 }
 
 /* ---------------------------------------------------------------- Aniversariantes */
+
+/** Iniciais para o avatar: primeira letra do primeiro e do último nome. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  const first = parts[0][0];
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
+
+/**
+ * Cor estável do avatar a partir do nome — mesma pessoa, mesma cor sempre.
+ * Luminosidade baixa (30%) para as iniciais brancas passarem contraste AA
+ * (>= 4.5:1) em qualquer matiz.
+ */
+function avatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue} 45% 30%)`;
+}
+
+/** Frase curta de contexto: quantos dias faltam (no mês corrente) e a idade. */
+function birthdayContext(birthDate: string, month: number): string {
+  const bd = new Date(birthDate);
+  const day = bd.getUTCDate();
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const bornYear = bd.getUTCFullYear();
+  const age =
+    bornYear > 1900 && bornYear < thisYear ? `faz ${thisYear - bornYear}` : '';
+
+  let when = '';
+  if (month === now.getMonth() + 1) {
+    const diff = day - now.getDate();
+    if (diff === 0) when = 'Hoje 🎉';
+    else if (diff === 1) when = 'Amanhã';
+    else if (diff > 1) when = `em ${diff} dias`;
+    else when = `há ${-diff} ${-diff === 1 ? 'dia' : 'dias'}`;
+  }
+
+  return [when, age].filter(Boolean).join(' · ');
+}
+
 function BirthdayPanel({
   month,
   onMonth,
@@ -183,8 +253,23 @@ function BirthdayPanel({
     queryFn: () => customersApi.birthdays(month),
   });
 
+  const rows = useMemo(() => {
+    const data = [...(list.data ?? [])];
+    data.sort((a, b) => {
+      const da = new Date(a.birthDate).getUTCDate();
+      const db = new Date(b.birthDate).getUTCDate();
+      return da - db || a.name.localeCompare(b.name, 'pt-BR');
+    });
+    return data;
+  }, [list.data]);
+
+  // "Hoje" no relógio de parede do usuário; o dia do aniversário sai de
+  // getUTCDate() (a data nasce como data-only, sem hora), igual ao resto da tela.
+  const todayDay = new Date().getDate();
+  const isCurrentMonth = month === new Date().getMonth() + 1;
+
   const exportCsv = () => {
-    const body = (list.data ?? []).map((c) => [
+    const body = rows.map((c) => [
       new Date(c.birthDate).getUTCDate(),
       c.name,
       c.phone ?? '',
@@ -196,41 +281,125 @@ function BirthdayPanel({
     );
   };
 
+  const shiftMonth = (delta: number) => onMonth(((month - 1 + delta + 12) % 12) + 1);
+
   return (
-    <section className="panel" style={{ marginBottom: 20 }}>
+    <section className="panel birthday-panel" style={{ marginBottom: 20 }}>
       <div className="panel-header">
-        <h2>Aniversariantes</h2>
-        <div className="header-tags">
-          <select value={month} onChange={(e) => onMonth(Number(e.target.value))}>
-            {MONTHS.map((m, i) => (
-              <option key={m} value={i + 1}>{m}</option>
-            ))}
-          </select>
-          <button
-            className="mini-button"
-            disabled={!list.data || list.data.length === 0}
-            onClick={exportCsv}
-          >
+        <div>
+          <h2>Aniversariantes</h2>
+          <span className="birthday-count">
+            {rows.length === 0
+              ? `Ninguém em ${MONTHS[month - 1]}`
+              : `${rows.length} cliente${rows.length > 1 ? 's' : ''} em ${MONTHS[month - 1]}`}
+          </span>
+        </div>
+        <div className="birthday-tools">
+          <div className="month-nav">
+            <button type="button" aria-label="Mês anterior" onClick={() => shiftMonth(-1)}>
+              ‹
+            </button>
+            <select
+              aria-label="Mês"
+              value={month}
+              onChange={(e) => onMonth(Number(e.target.value))}
+            >
+              {MONTHS.map((m, i) => (
+                <option key={m} value={i + 1}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <button type="button" aria-label="Próximo mês" onClick={() => shiftMonth(1)}>
+              ›
+            </button>
+          </div>
+          <button className="mini-button" disabled={rows.length === 0} onClick={exportCsv}>
             Exportar
           </button>
-          <button className="mini-button" onClick={onClose}>Fechar</button>
+          <button className="mini-button" onClick={onClose}>
+            Fechar
+          </button>
         </div>
       </div>
-      {list.data && list.data.length > 0 ? (
-        <ul className="list-rows">
-          {list.data.map((c) => (
-            <li key={c.id}>
-              <span>
-                <strong>dia {new Date(c.birthDate).getUTCDate()}</strong> · {c.name}
-              </span>
-              <small>{c.phone ?? c.email ?? '—'}</small>
-            </li>
-          ))}
-        </ul>
+
+      {list.isLoading ? (
+        <p className="muted">Carregando…</p>
+      ) : rows.length === 0 ? (
+        <div className="empty-state">
+          <strong>Nenhum aniversário em {MONTHS[month - 1]}</strong>
+          <span>Cadastre a data de nascimento no perfil do cliente para vê-lo aqui.</span>
+        </div>
       ) : (
-        <p className="muted">Nenhum cliente faz aniversário em {MONTHS[month - 1]}.</p>
+        <div className="birthday-grid">
+          {rows.map((c) => (
+            <BirthdayCard
+              key={c.id}
+              customer={c}
+              month={month}
+              isToday={isCurrentMonth && new Date(c.birthDate).getUTCDate() === todayDay}
+            />
+          ))}
+        </div>
       )}
     </section>
+  );
+}
+
+function BirthdayCard({
+  customer,
+  month,
+  isToday,
+}: {
+  customer: BirthdayCustomer;
+  month: number;
+  isToday: boolean;
+}) {
+  const day = new Date(customer.birthDate).getUTCDate();
+  const context = birthdayContext(customer.birthDate, month);
+
+  return (
+    <article className={`birthday-card ${isToday ? 'is-today' : ''}`}>
+      <div className="birthday-top">
+        <span className="birthday-avatar" style={{ background: avatarColor(customer.name) }}>
+          {initials(customer.name)}
+        </span>
+        <div className="birthday-id">
+          <span className="birthday-name" title={customer.name}>
+            {customer.name}
+          </span>
+          {context ? <span className="birthday-when">{context}</span> : null}
+        </div>
+        <span className="birthday-daypill">
+          {day}
+          <small>{MONTHS[month - 1].slice(0, 3)}</small>
+        </span>
+      </div>
+      {customer.phone || customer.email ? (
+        <div className="birthday-contacts">
+          {customer.phone ? (
+            <a
+              className="birthday-chip"
+              href={whatsappUrl('', customer.phone)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              WhatsApp
+            </a>
+          ) : null}
+          {customer.phone ? (
+            <a className="birthday-chip" href={`tel:${customer.phone.replace(/\s/g, '')}`}>
+              Ligar
+            </a>
+          ) : null}
+          {customer.email ? (
+            <a className="birthday-chip" href={`mailto:${customer.email}`}>
+              E-mail
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
   );
 }
 

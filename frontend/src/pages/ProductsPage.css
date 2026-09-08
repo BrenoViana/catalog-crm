@@ -1,0 +1,181 @@
+/* Catálogo com foto: coluna de miniatura na lista, grade de cartões e o
+   alternador entre os dois modos. Tudo por token — sem hex/px solto. */
+
+/* ------------------------------------------------------ alternador de modo */
+
+.view-switch {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-4);
+}
+
+.view-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Alvo de toque confortável mesmo com o ícone pequeno. */
+  min-width: 36px;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.view-switch button:hover {
+  color: var(--text);
+}
+
+.view-switch button.is-active {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+/* --------------------------------------------------------- lista com foto */
+
+.products-table .product-name {
+  display: block;
+  color: var(--text);
+}
+
+.products-table .product-sku,
+.product-card .product-sku {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* ---------------------------------------------------------------- grade */
+
+.product-grid {
+  display: grid;
+  /* auto-fill (e não auto-fit) para os cartões manterem a largura quando o
+     resultado da busca traz poucos itens — um catálogo de 2 produtos com
+     cartões gigantes parece defeito. */
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.product-grid .empty-state {
+  grid-column: 1 / -1;
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-4);
+  transition: border-color var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
+}
+
+.product-card:hover {
+  border-color: var(--border-strong);
+}
+
+/* Inativo continua visível, mas recuado: quem varre a grade procurando o que
+   está à venda não deve tropeçar nele. */
+.product-card.is-inactive {
+  opacity: 0.62;
+}
+
+.product-card-photo {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.product-card-photo:not(button) {
+  cursor: default;
+}
+
+/* Convite discreto no item sem foto — aparece por cima da reserva de iniciais
+   e é o que transforma a grade em uma lista de tarefas de catalogação. */
+.product-card-add {
+  position: absolute;
+  inset: auto var(--space-2) var(--space-2) var(--space-2);
+  display: block;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  text-align: center;
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease);
+}
+
+.product-card:hover .product-card-add,
+.product-card-photo:focus-visible .product-card-add {
+  opacity: 1;
+}
+
+/* Em telas de toque não existe hover: o convite fica sempre visível. */
+@media (hover: none) {
+  .product-card-add {
+    opacity: 1;
+  }
+}
+
+.product-card-body {
+  display: grid;
+  gap: var(--space-1);
+  flex: 1 1 auto;
+}
+
+.product-card-name {
+  color: var(--text-strong);
+  font-size: 0.92rem;
+  line-height: 1.35;
+  /* Duas linhas no máximo: o cartão tem que manter altura previsível. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.product-card-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: 0.82rem;
+}
+
+.product-card-price {
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.product-card-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.product-card-actions .mini-button {
+  flex: 1;
+}
+
+@media (max-width: 520px) {
+  .product-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: var(--space-3);
+  }
+}

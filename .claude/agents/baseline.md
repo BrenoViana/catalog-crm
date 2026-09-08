@@ -11,10 +11,16 @@ Regras:
 - Se o código divergir do que está escrito aqui, a divergência é achado.
 - IDs `SEC-###` são estáveis e nunca reutilizados.
 
-Última atualização: `2026-09-05` — por: `Claude (revisão do módulo de relatórios)` —
-revisão de referência: `225543f` + working tree (escopo desta passada: backend/src/reports,
-permissões, licença, ReportsPage/Layout/api-client; a passada anterior cobriu acesso, caixa,
-dashboard, fiscal, estoque, licença, pagamentos, promoções, vendas, configurações e frontend)
+Última atualização: `2026-09-08` — por: `Claude (revisão da foto de produto)` —
+revisão de referência: `204c380` + working tree (escopo desta passada: backend/src/products,
+`product-images`, `inventory.service`, schema/migração da foto, `lib/image.ts`,
+`ProductThumb`/`ProductPhotoField`, `Modal.tsx`, ProductsPage/PdvPage/InventoryPage)
+
+> **Pendência conhecida:** os commits `6b551ba` (SEC-084..088) e `204c380`
+> (SEC-090..097) fecharam achados que nunca foram registrados aqui. As linhas
+> desses dois blocos continuam faltando — quem fizer a próxima passada deve
+> extraí-las das mensagens de commit antes de tratar qualquer item como novo.
+> Próximo ID livre: **SEC-105**.
 
 > Primeira rodada real do `revisor-seguranca`. Relatório completo em
 > `.claude/seguranca/relatorios/2026-09-04-acesso-usuarios-e-hooks.md`
@@ -35,7 +41,7 @@ dashboard, fiscal, estoque, licença, pagamentos, promoções, vendas, configura
 | Autenticação | JWT HS256, `expiresIn` 12h | `getJwtSecret()` falha fechada: `NODE_ENV` ausente vale como **produção** (SEC-010 corrigido em 2026-09-05). Os 3 usos de `NODE_ENV` no backend testam `=== 'development'` |
 | Invalidação de sessão | ausente: sem `jti`/versão de token | redefinir senha ou desativar usuário **não** invalida JWT já emitido — ver SEC-002 |
 | Autorização | `JwtAuthGuard` + `PermissionsGuard`, ambos `APP_GUARD` global | rota sem `@RequirePermissions` exige só autenticação |
-| Modelo de permissão | **26 chaves** em `access/permission-catalog.ts`, sincronizadas no boot | papéis internos `ADMIN` (`'*'`), `GERENTE`, `OPERADOR`; papéis extras e exceções por usuário vivem no banco. Recruzado com os 18 controllers em 2026-09-05: nenhuma rota sensível sem decorator. `reports.view`/`reports.export` só para GERENTE e ADMIN |
+| Modelo de permissão | **38 chaves** em `access/permission-catalog.ts`, sincronizadas no boot | papéis internos `ADMIN` (`'*'`), `GERENTE`, `OPERADOR`; papéis extras e exceções por usuário vivem no banco. `finance.accounts.manage` entrou em 2026-09-08. O recruzamento completo com os controllers é de 2026-09-05 — **refazer**, houve controllers novos desde então. `reports.view`/`reports.export` só para GERENTE e ADMIN |
 | Relatórios | `reports/` atrás de `@RequireModule('relatorios')` no controller inteiro + `reports.view`; exportação CSV exige `reports.export` a mais | exportação **não liberável por vale de supervisor** (duas permissões faltando quebram a condição `missing.length === 1`). Leitura e exportação vão para o `AuditLog`. Teto de `MAX_ROWS = 2000` em produtos e estoque, com `truncado`/`limite` na resposta |
 | Cache de permissão | `Map` em memória com TTL em `access.service.ts`, invalidado em mudança de papel/permissão | por processo; múltiplas instâncias divergem até o TTL |
 | Delegação (vale de supervisor) | JWT curto (180 s), header `X-Authorization-Grant`, 1 permissão / 1 operador | **qualquer uma das 22 permissões pode ser liberada, inclusive `users.manage`** — ver SEC-011; uso único em `Map` em memória — ver SEC-003 |
@@ -48,7 +54,8 @@ dashboard, fiscal, estoque, licença, pagamentos, promoções, vendas, configura
 | Gate de licença | `ModuleGuard` como `APP_GUARD` no **CommonModule**, entre Jwt e Permissions; `@RequireModule` nos controllers acessórios; e checagem no **ponto de aplicação** dentro de `SalesService` (promoção e fiscal) | o **núcleo nunca é bloqueado** — sem chave, com chave inválida ou vencida a loja continua vendendo. Tolerância de 15 dias após vencer. `NODE_ENV=development` libera tudo sem chave |
 | Vínculo da chave | CNPJ do payload comparado com `StoreSettings.cnpj` na instalação e na renovação; renovação exige mesmo cliente e `emitidaEm` mais recente | chave sem CNPJ (avaliação/demonstração) vale em qualquer instalação, de propósito. **Não há revogação**: chave vazada só é neutralizada rotacionando `LICENSE_PUBLIC_KEY` e reemitindo para toda a base |
 | Certificado A1 | não implementado | quando entrar, definir onde fica o PFX e como a senha é guardada |
-| Upload de imagem | logo da loja (`store-settings`) | é URL, não upload — **sem rota de upload no backend** (verificado 2026-09-05) |
+| Upload de imagem | **foto de produto**: `PUT`/`DELETE /api/products/:id/image` sob `products.manage`; corpo é data URI (não multipart, sem `multer`). Logo da loja continua sendo URL em `StoreSettings` | recorte e recompressão acontecem no NAVEGADOR (`frontend/src/lib/image.ts`); o servidor reconfere bytes mágicos e tamanho (512 KB imagem / 64 KB miniatura) e recusa SVG. **Sem trilha de auditoria — ver SEC-099** |
+| Foto de produto — entrega | `GET /api/product-images/:token` e `/:token/thumb`, **`@Public()`** | `<img src>` não manda `Authorization` e o token do app vive em `localStorage`: a proteção é o endereço opaco (16 bytes aleatórios, `@unique`), trocado a cada upload. `Cache-Control: immutable` + 304 conferido antes de tocar o banco; CORP `cross-origin` sobrescrevendo o helmet; teto de 600 req/min por IP. Bytes em `BYTEA` no Postgres. **O token é capability permanente: desativar um usuário não revoga a URL que ele já conhece** — por isso só foto de vitrine entra aqui, nunca imagem com dado pessoal |
 | Importação de catálogo | CSV via `POST /api/products/import`, corpo JSON até 8 MB | `MAX_ROWS = 5000` aplicado antes de escrever; sem rota de exportação, logo sem sink de CSV injection hoje (verificado 2026-09-05) |
 | Modo offline do PDV | não | |
 | Porta de pagamento | `payments/` com `PAYMENT_GATEWAYS`: `CashPaymentProvider` (balcão) e `FakeElectronicProvider` (Pix/cartão simulados) | trava de produção pela positiva (`ALLOW_FAKE_PAYMENT_GATEWAY`); somente leitura — não há rota de estorno avulso, ver SEC-018 |
@@ -120,6 +127,14 @@ apenas ignorado, e isso não conta.
 | SEC-058 | Baixo | `RISKY_PREFIX` incluía `-`: todo número negativo do CSV virava texto no Excel e ficava fora do total | `backend/src/reports/csv.ts` | 2026-09-05 | 2026-09-05 | corrigido — coluna `numeric: true` não passa pela neutralização |
 | SEC-059 | Baixo | Margem por categoria contava produto sem custo como margem zero, subestimando o percentual sem avisar | `backend/src/reports/reports.service.ts` | 2026-09-05 | 2026-09-05 | corrigido — `receitaComCusto` como denominador, `produtosSemCusto` por categoria e `margemPercentual` nulo quando não há custo |
 | SEC-060 | Baixo | Bloco `recusados` do relatório de pagamentos não filtrava `sale.status`: estorno de cancelamento aparecia como falha de maquineta | `backend/src/reports/reports.service.ts` | 2026-09-05 | 2026-09-05 | corrigido — filtra `status: 'CONCLUIDA'` como o bloco de faturamento |
+| SEC-099 | **Alto** | Nenhuma rota de `products/` deixa trilha (inclusive alteração de preço e custo), e todas são liberáveis por vale de supervisor: um vale pedido "para arrumar a foto" serve para `PATCH /products/:id {price}` | `backend/src/products/products.service.ts`; `backend/src/products/product-images.service.ts` | 2026-09-08 | | **em aberto** |
+| SEC-098 | Médio | `GET /api/product-images/:token` público e sem teto: cada acerto trazia até 512 KB e segurava uma das 4 conexões do pool do PDV; o `ETag` era decorativo (`res.end` não gera 304) | `backend/src/products/product-images.controller.ts` | 2026-09-08 | 2026-09-08 | corrigido — `ProductImageRateLimitGuard` (600/min por IP) e 304 conferido **antes** da consulta. Permanece por decisão: o token é capability permanente (registrado na seção 1) |
+| SEC-100 | Baixo | `Content-Type` da miniatura herdado do arquivo grande: o header não descrevia os bytes servidos quando os formatos diferiam | `backend/src/products/product-images.service.ts` | 2026-09-08 | 2026-09-08 | corrigido — `set()` recusa quando `image` e `thumb` têm formatos diferentes (o editor já usa o mesmo codec nas duas) |
+| SEC-101 | Baixo | `imageUrl` sem `@IsUrl`/`@MaxLength`, agora renderizado como `<img>` em Produtos, Estoque e PDV: pixel de rastreamento de terceiro no balcão | `backend/src/products/dto/create-product.dto.ts`; `frontend/src/components/ProductThumb.tsx` | 2026-09-08 | 2026-09-08 | corrigido — `@IsUrl({ protocols: ['https'] })` + `@MaxLength(500)` nos dois DTOs, e `productPhotoUrl` descarta reserva externa que não seja `https:` |
+| SEC-102 | Baixo | Foco inicial do `Modal` reexecutava a cada render (`[onClose]` com arrow inline): o cursor saltaria para o primeiro campo a cada tecla no formulário de produto | `frontend/src/components/Modal.tsx` | 2026-09-08 | 2026-09-08 | corrigido — foco inicial e devolução de foco em efeito próprio com `[]`; Esc e trava de scroll seguem em `[onClose]` |
+| SEC-103 | Baixo | `readImage` aceitava `image/svg+xml` por arrastar/colar (o `accept` do seletor não cobre esses caminhos) | `frontend/src/lib/image.ts` | 2026-09-08 | 2026-09-08 | corrigido — SVG recusado explicitamente antes da leitura |
+| SEC-105 | Baixo | Sem cota para o armazenamento de fotos: ~576 KB por produto em `BYTEA`, até ~2,8 GB no teto de 5.000 linhas do importador, viajando em todo `pg_dump`. `byteSize` é gravado e nunca somado | `backend/src/products/product-images.service.ts` | 2026-09-08 | | em aberto |
+| SEC-104 | Baixo | `baseline.md` divergente do código: parava em SEC-065, dizia 26 permissões (são 38) e "sem rota de upload no backend" (há duas) | `.claude/agents/baseline.md` | 2026-09-08 | 2026-09-08 | corrigido em parte — seção 1 e seção 5 atualizadas nesta passada; as linhas de SEC-084..097 continuam faltando (ver aviso no cabeçalho) |
 
 ---
 
@@ -151,6 +166,11 @@ apenas ignorado, e isso não conta.
 | SEC-025 | `GET /payments/sale/:id` devolvia `Payment` cru | 2026-09-04 | (working tree) | `select` explícito, `qrCode` mascarado após liquidação, `externalId` fora — e2e "consulta posterior mascara o QR ja liquidado" |
 | SEC-013 | Hooks de sessão: temp file previsível, `session_id` sem validação e nomes de arquivo do git no canal de instrução do modelo | 2026-09-04 | (working tree) | revisão do próprio script — `mktemp` + `trap`, `case` de allowlist no `sid`, lista higienizada e delimitada como dado |
 | SEC-014 | `.claude/seguranca/relatorios/` versionado: achados abertos viajariam com o repositório | 2026-09-04 | (working tree) | `git status --porcelain -uall .claude/seguranca/` deve listar só o `README.md` |
+| SEC-061 | Alto — Credenciais `admin`/`admin` pré-preenchidas em `LoginPage.tsx` e presentes no bundle de produção; o `autoFocus` da revitalização de UI reduzia a exploração a um Enter | 2026-09-07 | (working tree) | `frontend/src/pages/LoginPage.tsx` nasce com os dois campos vazios; usuário só é pré-preenchido quando `import.meta.env.DEV` **e** `VITE_DEV_USER` existem; senha nunca. `grep -c 'useState("admin")' frontend/dist/assets/*.js` retorna 0 (verificado nesta sessão). Residual operacional: cada instalação já semeada deve trocar a senha do `admin` — remover a linha não muda senha existente |
+| SEC-062 | Baixo — Anel de foco global com contraste abaixo de 3:1 (WCAG 2.4.11) e `outline: none` sem fallback em `forced-colors` | 2026-09-07 | (working tree) | `--ring` a alpha 0.75 (escuro) / 0.60 (claro); bloco `@media (forced-colors: active)` com `outline: 2px solid Highlight` cobrindo `:focus-visible` e os campos `.field`/`.auth-form`/`.report-date`. Checklist manual por rodada: Tab na tela de login e no PDV com tema claro e alto contraste do Windows |
+| SEC-063 | Baixo — Primitivo `.skeleton` global sem `aria-busy`; `visibility: hidden` tirava os filhos da árvore de acessibilidade; `color: transparent !important` em nome de classe genérico | 2026-09-07 | (working tree) | `.skeleton` sem `!important`; `.stats-grid` do Dashboard com `aria-busy={isLoading}`, `<article aria-hidden={isLoading}>` e `<span class="sr-only" role="status">` de carga; utilitário `.sr-only` adicionado. Sugestão de teste de renderização do Dashboard em carga verificando `aria-busy="true"` |
+| SEC-064 | Baixo — Token `--accent` usado sem definição: `PromotionsModal.css` e `FinancePage.css` caíam em `#0e6e6e` fixo e ignoravam o tema | 2026-09-07 | (working tree) | `--accent` definido como alias de `--primary` nos dois blocos de tema em `styles.css`; os `var(--accent, #0e6e6e)` remanescentes passam a resolver pelo token |
+| SEC-065 | Baixo — `--border` do tema claro reduzido a alpha 0.10: contorno de campo abaixo de 3:1 (WCAG 1.4.11) | 2026-09-07 | (working tree) | `--border` do tema claro revertido a 0.12; token novo `--border-field` (~3:1: `rgba(15,23,42,0.32)` claro, `rgba(148,163,184,0.34)` escuro) aplicado em `.field`/`.field-input`/`.auth-form input`/`.report-date`. Mesmo checklist visual da Rodada 2 |
 
 Regra: todo achado **Crítico** ou **Alto** só sai daqui com um teste automatizado
 apontado na última coluna. Sem teste, ele volta. (SEC-013 e SEC-014 são Baixos e
@@ -252,7 +272,16 @@ de reinvestigar do zero — mas reinvestiga se o arquivo mudou.
   lê nem movimenta o turno de outro.
 - **Segredos**: nenhum `.env` jamais versionado
   (`git log --diff-filter=A -- "*.env"` vazio); nenhum `.pfx`/`.p12`/`.pem`/`.key`
-  rastreado; nenhuma constante de segredo além do `DEV_FALLBACK` (SEC-010).
+  rastreado; no backend, nenhuma constante de segredo além do `DEV_FALLBACK`
+  (SEC-010). No frontend houve uma credencial embutida (`admin`/`admin` em
+  `LoginPage.tsx`) — corrigida em 2026-09-07, ver SEC-061; a varredura de
+  segredos passa agora a cobrir constantes em JSX, não só backend e `.env`.
+- `frontend/src/styles.css` — camada de tokens da revitalização de UI
+  (2026-09-07): sem `@import`/`url()` remoto, sem fonte de terceiro (o
+  `--font-sans` é só pilha local), contraste AA de texto conferido por cálculo
+  nos dois temas, `prefers-reduced-motion` global cobrindo todos os `.css` por
+  `!important`, `z-index` inteiramente tokenizado com `--z-modal` (70) acima do
+  `.sidebar-toggle` (60).
 - `main.ts` — `helmet()`, `trust proxy 1`, CORS por allowlist, `ValidationPipe`
   com `whitelist` + `forbidNonWhitelisted` + `transform`.
 - `frontend/UsersPermissionsModal.tsx` — senhas só em `useState` local, nunca em
@@ -276,16 +305,26 @@ de reinvestigar do zero — mas reinvestiga se o arquivo mudou.
 - **Telas de pagamento sem XSS**: `SaleReceipt.tsx`, `SalesPage.tsx` e `CashPage.tsx` por JSX.
 - `access/permission-catalog.ts` — fonte única das permissões; `ADMIN` usa `'*'`,
   então permissão nova não deixa o administrador de fora por esquecimento.
-- **Sem rota de upload no backend** (nenhum `FileInterceptor`/`multer`/
-  `UploadedFile`): o logo da loja é URL em `StoreSettings`. Fecha o item "upload
-  de imagem — não verificado" da seção 1.
+- **Foto de produto — o que já está certo** (2026-09-08): os bytes nunca saem em
+  listagem (`PRODUCT_INCLUDE` traz só `token` e `withPhoto()` descarta o registro
+  cru — verificado nos seis pontos de leitura de `products.service.ts` e no
+  `inventory.service.ts`); `bytes()` seleciona só a variante pedida; o tipo é
+  apurado por bytes mágicos e reconferido contra o declarado, sem ramo de
+  aceitação para SVG; os tetos do DTO cortam antes da decodificação e os do
+  service depois; token inválido é barrado por regex antes de virar consulta; o
+  token não entra no log de acesso (`routeOf` registra `/product-images/:token`);
+  `assetUrl` só deixa passar `^https?://`, o que torna `javascript:`/`data:`
+  inertes mesmo se plantados em `imageUrl`; e todo o caminho novo do frontend é
+  JSX, sem `dangerouslySetInnerHTML`. Não há `multer`/`FileInterceptor` no
+  projeto: o upload é data URI validado no service.
 - **Importação de CSV com teto de 5.000 linhas** (`MAX_ROWS`) aplicado antes de
   qualquer escrita; colunas desconhecidas caem fora do mapa de aliases e são
   ignoradas. **A rota de exportação passou a existir**
   (`GET /reports/export/:report`) e já nasceu com a neutralização recomendada:
   `reports/csv.ts` prefixa `'` em células de origem livre iniciadas por
   `= + - @ TAB CR` e faz o quoting de `" ; 
- `. Coluna numérica é declarada
+ 
+`. Coluna numérica é declarada
   com `numeric: true` e **não** passa pela neutralização — prefixar um negativo
   faria o Excel ler `'-123,45` como texto, e o prejuízo sumiria do total. O
   `:report` é conferido contra allowlist antes de compor o `Content-Disposition`

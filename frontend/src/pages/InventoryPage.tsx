@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
+import { IconSearch } from '../components/ui-icons';
+import { ProductThumb } from '../components/ProductThumb';
 import { inventoryApi } from '../lib/api-client';
 import { num } from '../lib/format';
 
@@ -10,6 +12,7 @@ export function InventoryPage() {
   const [searchParams] = useSearchParams();
   // O dashboard linka "X em ruptura" para cá já filtrado.
   const [onlyLow, setOnlyLow] = useState(searchParams.get('ruptura') === '1');
+  const [search, setSearch] = useState('');
   const [adjust, setAdjust] = useState<{
     productId: string;
     name: string;
@@ -36,7 +39,16 @@ export function InventoryPage() {
     },
   });
 
-  const rows = (stock.data ?? []).filter((r) => !onlyLow || r.low);
+  const q = search.trim().toLowerCase();
+  const rows = (stock.data ?? []).filter((r) => {
+    if (onlyLow && !r.low) return false;
+    if (!q) return true;
+    return (
+      r.name.toLowerCase().includes(q) ||
+      r.sku.toLowerCase().includes(q) ||
+      (r.category ?? '').toLowerCase().includes(q)
+    );
+  });
 
   return (
     <Layout>
@@ -45,10 +57,6 @@ export function InventoryPage() {
           <p className="eyebrow">Operação</p>
           <h1>Estoque</h1>
         </div>
-        <label className="toggle">
-          <input type="checkbox" checked={onlyLow} onChange={(e) => setOnlyLow(e.target.checked)} />
-          Só ruptura
-        </label>
       </div>
 
       {adjust ? (
@@ -105,11 +113,33 @@ export function InventoryPage() {
       ) : null}
 
       <section className="panel">
+        <div className="toolbar">
+          <div className="toolbar-field has-icon">
+            <span className="toolbar-icon">
+              <IconSearch />
+            </span>
+            <input
+              className="field-input"
+              placeholder="Buscar por produto, SKU ou categoria…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={onlyLow}
+              onChange={(e) => setOnlyLow(e.target.checked)}
+            />
+            Só ruptura
+          </label>
+        </div>
+
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Produto</th>
+                <th colSpan={2}>Produto</th>
                 <th>Categoria</th>
                 <th style={{ textAlign: 'right' }}>Saldo</th>
                 <th style={{ textAlign: 'right' }}>Mínimo</th>
@@ -119,6 +149,9 @@ export function InventoryPage() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.productId}>
+                  <td className="cell-thumb">
+                    <ProductThumb product={r} />
+                  </td>
                   <td>
                     {r.name} <small>({r.sku})</small>
                   </td>
@@ -147,6 +180,15 @@ export function InventoryPage() {
                   </td>
                 </tr>
               ))}
+              {!stock.isLoading && rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="muted">
+                    {q || onlyLow
+                      ? 'Nenhum item corresponde ao filtro.'
+                      : 'Nenhum produto com estoque cadastrado.'}
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
